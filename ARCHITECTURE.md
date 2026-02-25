@@ -369,6 +369,18 @@ Estas reglas aplican a **todo código nuevo** en este servicio:
 /api/notifications/
 ```
 
+### Decisiones sobre Verbos HTTP
+
+| Verbo    | ¿Se usa en este servicio? | Justificación |
+|----------|--------------------------|---------------|
+| `GET`    | ✅ Sí | Consulta de recursos sin efectos secundarios. Idempotente. |
+| `POST`   | ✅ Sí | Creación de nuevos recursos — responde `201 Created`. |
+| `PATCH`  | ✅ Sí | Actualización **parcial**: solo el campo `read` cambia. Idempotente. |
+| `PUT`    | ❌ No aplica | `PUT` reemplaza el recurso completo con el payload enviado. Una notificación no se reemplaza, solo se marca como leída. Aplicar `PUT` sería semánticamente incorrecto y requeriría enviar todos los campos del recurso. |
+| `DELETE` | ✅ Sí | Eliminación de recursos individuales (`/id/`) y en lote (`/clear/`). |
+
+---
+
 ### Endpoints
 
 | Verbo | Endpoint | Descripción | Código éxito | Código error |
@@ -382,15 +394,25 @@ Estas reglas aplican a **todo código nuevo** en este servicio:
 
 ### Schema de Notificación
 
+> ⚠️ Schema basado en `notifications/serializers.py` — fuente de verdad.
+
 ```json
 {
   "id": 1,
-  "ticket_id": "42",
+  "ticket_id": 42,
   "message": "Nuevo Ticket #42 creado: Error en login",
-  "is_read": false,
-  "created_at": "2025-01-15T10:30:00Z"
+  "read": false,
+  "sent_at": "2025-01-15T10:30:00Z"
 }
 ```
+
+| Campo       | Tipo     | Descripción                                      |
+|-------------|----------|--------------------------------------------------|
+| `id`        | integer  | Identificador único autoincremental              |
+| `ticket_id` | integer  | ID del ticket asociado (entero, consistente con el contrato de eventos) |
+| `message`   | string   | Contenido descriptivo de la notificación         |
+| `read`      | boolean  | Estado de lectura (`false` por defecto)          |
+| `sent_at`   | datetime | Fecha y hora de creación (ISO 8601 UTC)          |
 
 ### Ejemplo de respuesta exitosa — GET /api/notifications/
 
@@ -399,17 +421,17 @@ HTTP 200 OK
 [
   {
     "id": 1,
-    "ticket_id": "42",
+    "ticket_id": 42,
     "message": "Nuevo Ticket #42 creado: Error en login",
-    "is_read": false,
-    "created_at": "2025-01-15T10:30:00Z"
+    "read": false,
+    "sent_at": "2025-01-15T10:30:00Z"
   },
   {
     "id": 2,
-    "ticket_id": "42",
+    "ticket_id": 42,
     "message": "El administrador respondió el Ticket #42",
-    "is_read": true,
-    "created_at": "2025-01-15T11:00:00Z"
+    "read": true,
+    "sent_at": "2025-01-15T11:00:00Z"
   }
 ]
 ```
@@ -473,12 +495,14 @@ HTTP 404 Not Found
 {
   "event_type": "ticket.status_changed",
   "ticket_id": 42,
+  "old_status": "open",
   "new_status": "in_progress",
-  "user_id": 7,
   "timestamp": "2025-01-15T12:00:00Z"
 }
 ```
 → Genera: `"El estado del Ticket #42 cambió a in_progress"`
+
+> ⚠️ Este evento **no incluye `user_id`** en el contrato oficial. Ver DT-09 en Sección 10.
 
 #### `ticket.priority_changed`
 ```json
@@ -529,12 +553,15 @@ El consumer implementa backoff exponencial configurable:
 
 | ID | Deuda | Prioridad | Descripción |
 |---|---|---|---|
-| **DT-01** | `CreateNotificationFromTicketCreatedUseCase` faltante | 🟠 Alta | `_handle_ticket_created` aún accede al ORM directamente |
+| **DT-01** | `CreateNotificationFromTicketCreatedUseCase` faltante | � Crítica | `_handle_ticket_created` aún accede al ORM directamente, viola DDD |
 | **DT-02** | `test_integration.py` con host hardcodeado | 🔴 Crítica | `RABBIT_HOST = 'rabbitmq'` rompe CI |
 | **DT-03** | `notifications/tests.py` deprecado | 🟠 Alta | Conflicto de test discovery con `tests/` |
 | **DT-04** | `requirements.txt` sin versiones fijas | 🟡 Media | `Django>=x` en lugar de `Django==x.x.x` |
 | **DT-05** | Dockerfile con usuario root | 🟡 Media | Riesgo de seguridad en contenedor |
 | **DT-06** | Sin paginación en listado de notificaciones | 🟡 Media | Performance con grandes volúmenes |
+| **DT-07** | `CreateNotificationFromStatusChangedUseCase` faltante | 🟠 Alta | No existe handler DDD para `ticket.status_changed` |
+| **DT-08** | `CreateNotificationFromPriorityChangedUseCase` faltante | 🟠 Alta | No existe handler DDD para `ticket.priority_changed` |
+| **DT-09** | Evento `ticket.status_changed` sin `user_id` | 🟠 Alta | El contrato oficial no incluye `user_id`; el servicio no puede generar notificaciones por cambio de estado hasta que el ticket-service extienda el contrato o se implemente lookup via REST |
 
 ---
 
@@ -657,18 +684,16 @@ GET /api/notifications/
 [
   {
     "id": 3,
-    "ticket_id": "T-103",
+    "ticket_id": 103,
     "message": "El estado de tu ticket 'Error en facturación' cambió a in_progress.",
     "read": false,
-    "user_id": 1,
     "sent_at": "2026-02-11T16:00:00Z"
   },
   {
     "id": 1,
-    "ticket_id": "T-101",
+    "ticket_id": 101,
     "message": "Tu ticket 'Error en facturación' fue creado exitosamente.",
     "read": false,
-    "user_id": 1,
     "sent_at": "2026-02-11T14:00:00Z"
   }
 ]
@@ -693,10 +718,9 @@ GET /api/notifications/{id}/
 ```json
 {
   "id": 42,
-  "ticket_id": "T-101",
+  "ticket_id": 101,
   "message": "Tu ticket 'Error en facturación' fue creado exitosamente.",
   "read": false,
-  "user_id": 1,
   "sent_at": "2026-02-11T14:00:00Z"
 }
 ```
@@ -723,26 +747,23 @@ POST /api/notifications/
 **Request Body:**
 ```json
 {
-  "ticket_id": "T-101",
-  "message": "Tu ticket 'Error en facturación' fue creado exitosamente.",
-  "user_id": 1
+  "ticket_id": 101,
+  "message": "Tu ticket 'Error en facturación' fue creado exitosamente."
 }
 ```
 
 | Campo       | Tipo    | Requerido | Descripción |
 |-------------|---------|-----------|-------------|
-| `ticket_id` | string  | ✅        | Identificador del ticket relacionado |
+| `ticket_id` | integer | ✅        | Identificador del ticket relacionado |
 | `message`   | string  | ✅        | Contenido de la notificación |
-| `user_id`   | integer | ✅        | ID del usuario destinatario |
 
 **Response 201 Created:**
 ```json
 {
   "id": 43,
-  "ticket_id": "T-101",
+  "ticket_id": 101,
   "message": "Tu ticket 'Error en facturación' fue creado exitosamente.",
   "read": false,
-  "user_id": 1,
   "sent_at": "2026-02-11T14:30:00Z"
 }
 ```
@@ -775,10 +796,9 @@ PATCH /api/notifications/{id}/read/
 ```json
 {
   "id": 42,
-  "ticket_id": "T-101",
+  "ticket_id": 101,
   "message": "Tu ticket 'Error en facturación' fue creado exitosamente.",
   "read": true,
-  "user_id": 1,
   "sent_at": "2026-02-11T14:00:00Z"
 }
 ```
@@ -856,15 +876,17 @@ ticket-service
     └─→ RabbitMQ Exchange (fanout)
             └─→ notification_queue
                     └─→ consumer.py — identifica event_type
-                            ├─→ ticket.created         → CreateNotificationFromTicketCreatedUseCase
-                            ├─→ ticket.response_added  → CreateNotificationFromResponseUseCase
-                            ├─→ ticket.status_changed  → CreateNotificationFromStatusChangedUseCase
-                            └─→ ticket.priority_changed→ CreateNotificationFromPriorityChangedUseCase
+                            ├─→ ticket.created         → CreateNotificationFromTicketCreatedUseCase   ⚠️ pendiente
+                            ├─→ ticket.response_added  → CreateNotificationFromResponseUseCase        ✅ implementado
+                            ├─→ ticket.status_changed  → CreateNotificationFromStatusChangedUseCase   ⚠️ pendiente
+                            └─→ ticket.priority_changed→ CreateNotificationFromPriorityChangedUseCase ⚠️ pendiente
                                         ↓
                             DjangoNotificationRepository
                                         ↓
                                    PostgreSQL DB
 ```
+
+> ⚠️ **Estado objetivo** — Los Use Cases marcados como `pendiente` no están implementados aún. Ver Sección 10: Deuda Técnica (DT-01, DT-07, DT-08).
 
 > **Principio clave:** El consumer es un **adaptador de entrada** — no contiene lógica de negocio ni realiza llamadas HTTP. La lógica vive en los Use Cases.
 

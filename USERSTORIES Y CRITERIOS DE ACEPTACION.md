@@ -33,6 +33,7 @@ El servicio fue refactorizado a arquitectura DDD Pragmático, con separación es
 | E3    | Gestión del Estado de Lectura             | El usuario puede marcar notificaciones como leídas                         |
 | E4    | Eliminación de Notificaciones             | El usuario puede eliminar notificaciones individuales o todas a la vez     |
 | E5    | Resiliencia del Consumidor RabbitMQ       | El consumidor sobrevive a fallos sin perder eventos                        |
+| E6    | Infraestructura y CI/CD                   | El servicio es portable, contenerizado y su calidad se valida automáticamente |
 
 ---
 
@@ -433,7 +434,7 @@ Feature: Listar todas las notificaciones
     When el frontend realiza un GET a /api/notifications/
     Then la respuesta tiene código HTTP 200
     And el body contiene una lista con las 3 notificaciones
-    And cada notificación incluye los campos: id, message, read, ticket_id, user_id, created_at
+    And cada notificación incluye los campos: id, ticket_id, message, read, sent_at
 
   Scenario: Listado exitoso con bandeja vacía
     Given no existe ninguna notificación en el sistema
@@ -547,7 +548,6 @@ Feature: Marcar notificación como leída
     When el frontend realiza un PATCH a /api/notifications/42/read/
     Then la respuesta tiene código HTTP 200
     And el body contiene la notificación actualizada con read: true
-    And el campo updated_at refleja la fecha y hora de la actualización
 
   Scenario: Marcar como leída una notificación ya leída (idempotencia)
     Given existe una notificación con id 42 en estado leída (read: true)
@@ -817,22 +817,179 @@ T: ✅ Verificable con tests de consumer usando mensajes intencionalmente malfor
 
 ---
 
+## EPIC E6 — Infraestructura y CI/CD
+
+---
+
+### US-INFRA-01 — Dockerfile optimizado
+
+**Como** desarrollador del equipo,
+**quiero** que el notification-service tenga un Dockerfile optimizado,
+**para** garantizar que la imagen sea reproducible, segura y ligera en cualquier entorno.
+
+#### Criterios de Aceptación
+
+```gherkin
+@epic:infraestructura @story:US-INFRA-01 @priority:alta @risk:bajo
+Feature: Dockerfile optimizado para el notification-service
+
+  Como desarrollador del equipo
+  Quiero construir una imagen Docker del notification-service
+  Para garantizar portabilidad y seguridad en cualquier entorno
+
+  Scenario: Construcción exitosa de la imagen Docker
+    Given el repositorio está clonado en el entorno de build
+    When ejecuto `docker build -t notification-service .`
+    Then la imagen se construye sin errores
+    And el contenedor inicia y responde en el puerto configurado
+
+  Scenario: El contenedor corre como usuario no-root
+    Given la imagen está construida
+    When inspecciono el usuario del proceso dentro del contenedor
+    Then el proceso NO corre como root (uid != 0)
+
+  Scenario: El tamaño de la imagen es razonable
+    Given la imagen está construida
+    When ejecuto `docker image inspect notification-service`
+    Then el tamaño de la imagen es menor a 300MB
+```
+
+#### Validación INVEST
+```
+I: ✅ No depende de otros servicios para construirse.
+N: ✅ Describe comportamiento de la imagen, no instrucciones Dockerfile específicas.
+V: ✅ Garantiza que el servicio funciona igual en cualquier máquina.
+E: ✅ Un solo artefacto (Dockerfile); estimable en 2-3 horas.
+S: ✅ Scope de un solo archivo.
+T: ✅ Verificable con `docker build` y `docker run`.
+```
+
+---
+
+### US-INFRA-02 — Entorno local con docker-compose
+
+**Como** desarrollador,
+**quiero** levantar el notification-service con `docker-compose up`,
+**para** desarrollar y testear el servicio de forma aislada sin configuración manual.
+
+#### Criterios de Aceptación
+
+```gherkin
+@epic:infraestructura @story:US-INFRA-02 @priority:alta @risk:medio
+Feature: Entorno local completo con docker-compose
+
+  Como desarrollador
+  Quiero levantar el ecosistema completo con un solo comando
+  Para desarrollar y probar el notification-service de forma aislada
+
+  Background:
+    Given existe el archivo `.env` configurado a partir de `.env.example`
+
+  Scenario: Levantamiento exitoso del ecosistema
+    Given el archivo docker-compose.yml está en la raíz del proyecto
+    When ejecuto `docker-compose up --build`
+    Then el notification-service responde en `http://localhost:8003/api/notifications/`
+    And PostgreSQL está accesible y las migraciones fueron aplicadas
+    And RabbitMQ está accesible en `localhost:15672`
+
+  Scenario: Los datos persisten tras reiniciar los contenedores
+    Given existen notificaciones creadas vía la API
+    When ejecuto `docker-compose restart`
+    And realizo GET /api/notifications/
+    Then las notificaciones siguen existiendo (volumen persistido)
+
+  Scenario: El ecosistema se destruye limpiamente
+    When ejecuto `docker-compose down`
+    Then todos los contenedores se detienen sin errores
+```
+
+#### Validación INVEST
+```
+I: ✅ Levanta solo notification-service + postgres + rabbitmq; no depende de otros servicios del sistema.
+N: ✅ Define comportamiento del entorno, no el contenido del YAML.
+V: ✅ Elimina el "funciona en mi máquina"; el entorno es reproducible para todo el equipo.
+E: ✅ Un solo docker-compose.yml; estimable en 3-4 horas.
+S: ✅ Scope acotado a orquestación local del servicio.
+T: ✅ Verificable con `docker-compose up` y requests a los endpoints.
+```
+
+---
+
+### US-INFRA-03 — Pipeline CI con cobertura mínima
+
+**Como** QA del equipo,
+**quiero** que cada Push o PR dispare automáticamente los tests con cobertura,
+**para** detectar regresiones antes de que lleguen a develop o main.
+
+#### Criterios de Aceptación
+
+```gherkin
+@epic:infraestructura @story:US-INFRA-03 @priority:alta @risk:medio
+Feature: Pipeline de integración continua en GitHub Actions
+
+  Como QA del equipo
+  Quiero que cada Push o PR ejecute los tests automáticamente
+  Para detectar regresiones antes de integrar código
+
+  Background:
+    Given existe el archivo `.github/workflows/ci.yml` en el repositorio
+
+  Scenario: El pipeline se dispara automáticamente en push
+    Given un desarrollador realiza un push a cualquier rama (main, develop, feature/**)
+    When GitHub procesa el push
+    Then el pipeline ci.yml se ejecuta automáticamente
+
+  Scenario: El pipeline falla si algún test no pasa
+    Given un push contiene código que rompe un test existente
+    When el pipeline ejecuta pytest
+    Then el pipeline termina con exit code != 0
+    And el resultado aparece en rojo en la pestaña Actions de GitHub
+    And el PR no puede mergearse automáticamente
+
+  Scenario: El pipeline falla si la cobertura es menor al 70%
+    Given el código tiene cobertura por debajo del umbral mínimo
+    When el pipeline mide cobertura con pytest-cov
+    Then el pipeline termina con exit code != 0 por cobertura insuficiente
+    And el reporte de cobertura está disponible como artefacto descargable
+
+  Scenario: El pipeline pasa y muestra verde en Actions
+    Given todos los tests pasan y la cobertura es >= 70%
+    When el pipeline se ejecuta
+    Then todos los pasos terminan con exit code 0
+    And el resultado aparece en verde en la pestaña Actions de GitHub
+```
+
+#### Validación INVEST
+```
+I: ✅ El pipeline corre en este repo; no depende de otros servicios del sistema.
+N: ✅ Define el comportamiento del CI, no los comandos específicos del workflow.
+V: ✅ Detecta regresiones automáticamente antes de que lleguen a develop/main.
+E: ✅ Un solo archivo ci.yml; estimable en 2-3 horas.
+S: ✅ Scope de pipeline básico de tests y cobertura.
+T: ✅ Verificable con la pestaña Actions de GitHub (verde/rojo).
+```
+
+---
+
 ## 📊 Resumen de Historias de Usuario
 
-| ID        | Historia                                              | Épica | Prioridad | Riesgo |
-|-----------|-------------------------------------------------------|-------|-----------|--------|
-| US-E1-01  | Notificación por `ticket.created`                     | E1    | Alta      | Alto   |
-| US-E1-02  | Notificación por `ticket.response_added`              | E1    | Alta      | Alto   |
-| US-E1-03  | Notificación por `ticket.status_changed`              | E1    | Alta      | Medio  |
-| US-E1-04  | Notificación por `ticket.priority_changed`            | E1    | Media     | Medio  |
-| US-E1-05  | Idempotencia en la creación de notificaciones         | E1    | Alta      | Alto   |
-| US-E2-01  | Listar todas las notificaciones                       | E2    | Alta      | Bajo   |
-| US-E2-02  | Consultar notificación individual por ID              | E2    | Alta      | Bajo   |
-| US-E3-01  | Marcar notificación individual como leída             | E3    | Alta      | Bajo   |
-| US-E4-01  | Eliminar notificación individual                      | E4    | Media     | Bajo   |
-| US-E4-02  | Eliminar todas las notificaciones (clear all)         | E4    | Media     | Medio  |
-| US-E5-01  | Reconexión automática ante caída del broker           | E5    | Alta      | Alto   |
-| US-E5-02  | Enrutamiento de mensajes no procesables a DLQ         | E5    | Alta      | Alto   |
+| ID           | Historia                                              | Épica | Prioridad | Riesgo |
+|--------------|-------------------------------------------------------|-------|-----------|--------|
+| US-E1-01     | Notificación por `ticket.created`                     | E1    | Alta      | Alto   |
+| US-E1-02     | Notificación por `ticket.response_added`              | E1    | Alta      | Alto   |
+| US-E1-03     | Notificación por `ticket.status_changed`              | E1    | Alta      | Medio  |
+| US-E1-04     | Notificación por `ticket.priority_changed`            | E1    | Media     | Medio  |
+| US-E1-05     | Idempotencia en la creación de notificaciones         | E1    | Alta      | Alto   |
+| US-E2-01     | Listar todas las notificaciones                       | E2    | Alta      | Bajo   |
+| US-E2-02     | Consultar notificación individual por ID              | E2    | Alta      | Bajo   |
+| US-E3-01     | Marcar notificación individual como leída             | E3    | Alta      | Bajo   |
+| US-E4-01     | Eliminar notificación individual                      | E4    | Media     | Bajo   |
+| US-E4-02     | Eliminar todas las notificaciones (clear all)         | E4    | Media     | Medio  |
+| US-E5-01     | Reconexión automática ante caída del broker           | E5    | Alta      | Alto   |
+| US-E5-02     | Enrutamiento de mensajes no procesables a DLQ         | E5    | Alta      | Alto   |
+| US-INFRA-01  | Dockerfile optimizado para el notification-service    | E6    | Alta      | Bajo   |
+| US-INFRA-02  | Entorno local completo con docker-compose             | E6    | Alta      | Medio  |
+| US-INFRA-03  | Pipeline CI con cobertura mínima >= 70%               | E6    | Alta      | Medio  |
 
 ---
 
