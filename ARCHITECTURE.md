@@ -399,7 +399,7 @@ Estas reglas aplican a **todo código nuevo** en este servicio:
 ```json
 {
   "id": 1,
-  "ticket_id": 42,
+  "ticket_id": "42",
   "message": "Nuevo Ticket #42 creado: Error en login",
   "read": false,
   "sent_at": "2025-01-15T10:30:00Z"
@@ -408,11 +408,22 @@ Estas reglas aplican a **todo código nuevo** en este servicio:
 
 | Campo       | Tipo     | Descripción                                      |
 |-------------|----------|--------------------------------------------------|
-| `id`        | integer  | Identificador único autoincremental              |
-| `ticket_id` | integer  | ID del ticket asociado (entero, consistente con el contrato de eventos) |
-| `message`   | string   | Contenido descriptivo de la notificación         |
-| `read`      | boolean  | Estado de lectura (`false` por defecto)          |
-| `sent_at`   | datetime | Fecha y hora de creación (ISO 8601 UTC)          |
+| `id`        | integer  | Identificador único autoincremental |
+| `ticket_id` | string   | ID del ticket asociado. Recibido como `int` desde eventos RabbitMQ, almacenado y expuesto como `string` (`CharField` en el modelo) |
+| `message`   | string   | Contenido descriptivo de la notificación |
+| `read`      | boolean  | Estado de lectura (`false` por defecto) |
+| `sent_at`   | datetime | Fecha y hora de creación (ISO 8601 UTC). Generado automáticamente por el servidor (`auto_now_add=True`) |
+
+> ℹ️ **Campos internos no expuestos por la API**
+>
+> Los siguientes campos existen en el modelo (`models.py`) y en la entidad de dominio
+> (`domain/entities.py`) pero **no forman parte del contrato público de la API REST**
+> porque no están incluidos en `serializers.py`:
+>
+> | Campo | Tipo | Uso interno |
+> |-------|------|-------------|
+> | `user_id` | string | ID del usuario destinatario. Usado para filtrado y asociación interna |
+> | `response_id` | integer (nullable) | Clave de idempotencia para `ticket.response_added`. Evita crear notificaciones duplicadas por la misma respuesta |
 
 ### Ejemplo de respuesta exitosa — GET /api/notifications/
 
@@ -421,14 +432,14 @@ HTTP 200 OK
 [
   {
     "id": 1,
-    "ticket_id": 42,
+    "ticket_id": "42",
     "message": "Nuevo Ticket #42 creado: Error en login",
     "read": false,
     "sent_at": "2025-01-15T10:30:00Z"
   },
   {
     "id": 2,
-    "ticket_id": 42,
+    "ticket_id": "42",
     "message": "El administrador respondió el Ticket #42",
     "read": true,
     "sent_at": "2025-01-15T11:00:00Z"
@@ -441,7 +452,7 @@ HTTP 200 OK
 ```json
 HTTP 404 Not Found
 {
-  "detail": "No found."
+  "detail": "Not found."
 }
 ```
 
@@ -684,14 +695,14 @@ GET /api/notifications/
 [
   {
     "id": 3,
-    "ticket_id": 103,
+    "ticket_id": "103",
     "message": "El estado de tu ticket 'Error en facturación' cambió a in_progress.",
     "read": false,
     "sent_at": "2026-02-11T16:00:00Z"
   },
   {
     "id": 1,
-    "ticket_id": 101,
+    "ticket_id": "101",
     "message": "Tu ticket 'Error en facturación' fue creado exitosamente.",
     "read": false,
     "sent_at": "2026-02-11T14:00:00Z"
@@ -718,7 +729,7 @@ GET /api/notifications/{id}/
 ```json
 {
   "id": 42,
-  "ticket_id": 101,
+  "ticket_id": "101",
   "message": "Tu ticket 'Error en facturación' fue creado exitosamente.",
   "read": false,
   "sent_at": "2026-02-11T14:00:00Z"
@@ -747,21 +758,21 @@ POST /api/notifications/
 **Request Body:**
 ```json
 {
-  "ticket_id": 101,
+  "ticket_id": "101",
   "message": "Tu ticket 'Error en facturación' fue creado exitosamente."
 }
 ```
 
 | Campo       | Tipo    | Requerido | Descripción |
 |-------------|---------|-----------|-------------|
-| `ticket_id` | integer | ✅        | Identificador del ticket relacionado |
+| `ticket_id` | string  | ✅        | Identificador del ticket relacionado |
 | `message`   | string  | ✅        | Contenido de la notificación |
 
 **Response 201 Created:**
 ```json
 {
   "id": 43,
-  "ticket_id": 101,
+  "ticket_id": "101",
   "message": "Tu ticket 'Error en facturación' fue creado exitosamente.",
   "read": false,
   "sent_at": "2026-02-11T14:30:00Z"
@@ -772,7 +783,7 @@ POST /api/notifications/
 ```json
 {
   "ticket_id": ["This field is required."],
-  "user_id": ["This field is required."]
+  "message": ["This field is required."]
 }
 ```
 
@@ -796,7 +807,7 @@ PATCH /api/notifications/{id}/read/
 ```json
 {
   "id": 42,
-  "ticket_id": 101,
+  "ticket_id": "101",
   "message": "Tu ticket 'Error en facturación' fue creado exitosamente.",
   "read": true,
   "sent_at": "2026-02-11T14:00:00Z"
