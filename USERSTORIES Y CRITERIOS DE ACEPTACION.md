@@ -138,6 +138,9 @@ Feature: Notificación por respuesta agregada a ticket
     Then se persiste una notificación asociada al user_id del evento
     And el message de la notificación referencia al ticket_id y la existencia de una nueva respuesta
     And el campo response_id queda almacenado en la notificación
+    And el response_id queda persistido internamente como clave de idempotencia
+    And el response_id NO es expuesto en la respuesta de la API REST
+    And el body de la respuesta solo contiene: id, ticket_id, message, read, sent_at
     And la notificación queda en estado no leída
     And el mensaje es confirmado (ack) en la cola
 
@@ -196,6 +199,16 @@ T: ✅ Escenarios observables y verificables por QA en consumer tests.
 
 ### US-E1-03 — Crear notificación al recibir evento `ticket.status_changed`
 
+> ⚠️ **BLOQUEADA PARCIALMENTE — DT-09**
+> El contrato oficial del evento `ticket.status_changed` definido en
+> `copilot-instructions.md` **no incluye `user_id`**:
+> ```json
+> { "event_type": "ticket.status_changed", "ticket_id": int, "old_status": str, "new_status": str, "timestamp": "ISO8601" }
+> ```
+> Sin `user_id`, el servicio no puede determinar a qué usuario asociar la
+> notificación. El Scenario feliz representa el **estado objetivo** una vez
+> que el ticket-service extienda el contrato. Ver DT-09 en ARCHITECTURE.md.
+
 **Como** notification-service
 **quiero** procesar el evento `ticket.status_changed`
 **para** informar al usuario que el estado de su ticket fue actualizado por un administrador
@@ -242,6 +255,18 @@ Feature: Notificación por cambio de estado de ticket
     Then no se persiste ninguna notificación
     And el mensaje es enviado a la Dead Letter Queue
     And se registra un log de error estructurado
+```
+
+```gherkin
+  Scenario: Evento ticket.status_changed sin user_id va a Dead Letter Queue (comportamiento actual)
+    Given el consumer está activo y conectado a RabbitMQ
+    When llega un evento con event_type "ticket.status_changed"
+    And el payload contiene ticket_id, old_status, new_status y timestamp
+    And el campo user_id NO está presente en el payload
+    Then el consumer captura la ausencia del campo user_id
+    And envía el mensaje a la Dead Letter Queue con NACK requeue=False
+    And no se crea ninguna notificación en la base de datos
+    And se registra un log de error con el ticket_id y el motivo "missing user_id"
 ```
 
 #### Notas
@@ -488,7 +513,7 @@ Feature: Consultar notificación por ID
     Given existe una notificación con id 42
     When el frontend realiza un GET a /api/notifications/42/
     Then la respuesta tiene código HTTP 200
-    And el body contiene los campos: id, message, read, ticket_id, user_id, created_at
+    And el body contiene los campos: id, ticket_id, message, read, sent_at
     And el campo id del body es 42
 
   Scenario: Consulta de notificación inexistente
@@ -888,7 +913,7 @@ Feature: Entorno local completo con docker-compose
   Scenario: Levantamiento exitoso del ecosistema
     Given el archivo docker-compose.yml está en la raíz del proyecto
     When ejecuto `docker-compose up --build`
-    Then el notification-service responde en `http://localhost:8003/api/notifications/`
+    Then el notification-service responde en `http://localhost:8001/api/notifications/`
     And PostgreSQL está accesible y las migraciones fueron aplicadas
     And RabbitMQ está accesible en `localhost:15672`
 
