@@ -1097,6 +1097,23 @@ La siguiente tabla funciona como **hoja de cálculo de ejecución manual**. Cada
 - **Resultado:** ✅ Pasó | ❌ Falló | ⏳ Pendiente | 🔄 Re-test
 - **Técnica:** EP = Partición de Equivalencia | BVA = Análisis de Valores Límite | ST = Transición de Estados | DT = Tabla de Decisiones | Negativa = Prueba negativa
 
+**Ejemplo con capturas de pantalla evidenciando códigos de estado**
+
+**GET — Listar todas las notificaciones - fallida - 401**
+<img width="1350" height="485" alt="image" src="https://github.com/user-attachments/assets/52ea511e-f503-40a0-a94b-a5226eda0f1d" />
+
+**GET — Listar todas las notificaciones - exitosa - 200**
+<img width="1351" height="676" alt="image" src="https://github.com/user-attachments/assets/d1bda6df-9d7b-4195-94a1-b858ea9122f9" />
+
+**GET - Notificación inexistente - fallida - 404**
+<img width="1355" height="497" alt="image" src="https://github.com/user-attachments/assets/cae4add7-a7e1-43e7-ac80-089d868dd6fb" />
+
+**DEL - Eliminar notificacion individual - exitosa - 204**
+<img width="1344" height="468" alt="image" src="https://github.com/user-attachments/assets/e1d65d18-5841-47b5-966b-27881d6b5abd" />
+
+**POST - Crear notificación - fallida - 405**
+<img width="1347" height="460" alt="image" src="https://github.com/user-attachments/assets/f1a226a0-f473-4583-a63c-ab26f7d9cf3d" />
+
 ---
 
 ### 13.2 Casos Gherkin — EPIC E1: Ingesta de Eventos de Dominio
