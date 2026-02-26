@@ -446,6 +446,8 @@ HTTP 200 OK
   }
 ]
 ```
+<img width="1351" height="676" alt="image" src="https://github.com/user-attachments/assets/59cec081-c93b-4f25-be78-867466412872" />
+
 
 ### Ejemplo de respuesta de error — GET /api/notifications/999/
 
@@ -455,6 +457,7 @@ HTTP 404 Not Found
   "detail": "Not found."
 }
 ```
+<img width="1355" height="497" alt="image" src="https://github.com/user-attachments/assets/b2eaca77-57b9-4cfd-8016-fb1789236ef7" />
 
 ---
 
