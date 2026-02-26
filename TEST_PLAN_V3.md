@@ -129,6 +129,7 @@ Siguiendo la pirámide de pruebas (ISTQB Foundation §2.2), se definen tres nive
 - **Application Layer** (`notifications/application/`):
   - `MarkNotificationAsReadUseCase`: orquesta find → mark_as_read → save → publish (con mocks)
   - `CreateNotificationFromResponseUseCase`: validación de schema (EP21), idempotencia por `response_id` (EP22), creación de entidad con mensaje formateado
+  - `CreateNotificationFromTicketCreatedUseCase` (⏳ **PENDIENTE — DT-01**): `_handle_ticket_created` en el consumer accede al ORM directamente, violando la regla arquitectónica R3. Use Case + Command + tests unitarios pendientes de implementación antes de que esta deuda técnica sea saldada.
   - Command objects: `MarkNotificationAsReadCommand`, `CreateNotificationFromResponseCommand`
 
 - **Consumer Dispatch** (`notifications/messaging/`):
@@ -144,6 +145,7 @@ Siguiendo la pirámide de pruebas (ISTQB Foundation §2.2), se definen tres nive
 | `test_use_cases.py` | 3 | `MarkNotificationAsReadUseCase` con mocks |
 | `test_response_handler.py` | 9 | `CreateNotificationFromResponseUseCase`: schema, idempotencia, user_id, response_id |
 | `test_consumer_dispatch.py` | 4 | Dispatch del callback del consumer |
+| ⏳ `test_ticket_created_use_case.py` | 0 (pendiente) | **DT-01:** `CreateNotificationFromTicketCreatedUseCase` — creación, idempotencia, message format |
 
 **Herramientas:**
 - pytest 8.3.4 (runner)
@@ -275,11 +277,34 @@ pytest notifications/tests/ -v --cov=notifications
 
 | Técnica | Aplicación en el Proyecto |
 |---------|---------------------------|
-| **Partición de Equivalencia** | Tipos de evento (`ticket.created`, `ticket.response_added`, `ticket.status_changed`, `ticket.priority_changed`, evento desconocido). Estados de lectura (`read=true`, `read=false`). |
+| **Partición de Equivalencia** | Tipos de evento (`ticket.created`, `ticket.response_added`, `ticket.status_changed`, `ticket.priority_changed`, evento desconocido). Estados de lectura (`read=true`, `read=false`). **EP22+:** Idempotencia diferenciada por tipo de evento (ver tabla EP22+ debajo). |
 | **Análisis de Valores Límite** | Longitud de `ticket_id` (128 chars max), `message` (TextField sin límite), `user_id` (128 chars max). Valores null/vacío en campos obligatorios de eventos. |
 | **Transición de Estados** | Estado de lectura: `read=false` → `read=true` (irreversible). Conexión RabbitMQ: `connected` → `disconnected` → `reconnecting` → `connected` (backoff exponencial). |
 | **Tabla de Decisiones** | Validación de schema: combinaciones de campos faltantes (`ticket_id`, `response_id`, `user_id`) en `ticket.response_added`. Dispatch: `event_type` → handler correspondiente. |
 | **Pruebas Negativas** | POST/PUT/PATCH retornan 405. Notificación inexistente → 404. Evento malformado → ACK + log (no crash). JSON inválido → ACK + log. |
+
+#### EP22+ — Idempotencia por Tipo de Evento
+
+La idempotencia garantiza que procesar el mismo evento más de una vez no produce datos duplicados. El mecanismo y el estado de implementación varían según el tipo de evento:
+
+| Tipo de evento | Clave de idempotencia | Estado | Capa responsable |
+|---------------|----------------------|--------|------------------|
+| `ticket.response_added` | `response_id` (campo único en DB, indexado) | ✅ **Implementado** — `find_by_response_id()` en `CreateNotificationFromResponseUseCase` | Application |
+| `ticket.created` | Sin mecanismo explícito | ⚠️ **No implementado** — acceso directo ORM en `_handle_ticket_created`, sin verificación de duplicados (DT-01) | Messaging (ORM directo) |
+| `ticket.status_changed` | Sin mecanismo explícito | ⚠️ **No implementado** — no existe use case; además bloqueado por DT-09 (sin `user_id` en evento) | — |
+| `ticket.priority_changed` | Sin mecanismo explícito | ⚠️ **No implementado** — no existe use case para este evento | — |
+
+**Casos de prueba EP22+:**
+
+| ID | Escenario | Estado | Archivo de test |
+|----|-----------|--------|-----------------|
+| EP22-A | `ticket.response_added` con `response_id` nuevo → crea notificación | ✅ | `test_response_handler.py::test_create_notification_from_valid_response_event` |
+| EP22-B | `ticket.response_added` con `response_id` duplicado → no crea segunda notificación | ✅ | `test_response_handler.py::test_duplicate_response_id_does_not_create_second_notification` |
+| EP22-C | `ticket.created` duplicado → debería no crear segunda notificación | ⏳ **Pendiente (DT-01)** | `test_ticket_created_use_case.py` (crear) |
+| EP22-D | `ticket.status_changed` duplicado → debería no crear segunda notificación | ⏳ **Pendiente (DT-09)** | Bloqueado hasta que ticket-service incluya `user_id` en el evento |
+| EP22-E | `ticket.priority_changed` duplicado → debería no crear segunda notificación | ⏳ **Pendiente** | `test_ticket_created_use_case.py` (crear) |
+
+---
 
 ### 4.3 Estrategia de Datos de Prueba
 
@@ -423,6 +448,7 @@ Siguiendo ISTQB Foundation §5.5 (Risk-Based Testing), se identifican, evalúan 
 | **R08** | **Consumer crashea el loop** (excepción no manejada en callback) | Media | Alto | **MEDIA** | Prevenir | - Try/except global en `callback()`<br>- `InvalidEventSchema` → ACK (sin NACK)<br>- Evento con JSON inválido → ACK + log |
 | **R09** | **Filtrado SSE incorrecto** (usuario ve notificaciones de otro) | Baja | Crítico | **MEDIA** | Prevenir | - Filtro `Notification.objects.filter(user_id=user_id)` en SSE view<br>- Tests de aislamiento estricto (`test_sse_stream_isolates_users_strictly`) |
 | **R10** | **Performance degradada en listado** (sin paginación, DT-06) | Media | Medio | **MEDIA** | Detectar | - `queryset.order_by('-sent_at')` con índice en `sent_at`<br>- Campos `ticket_id`, `read`, `user_id` indexados<br>- Deuda técnica DT-06: implementar paginación |
+| **R11** | **`ticket.status_changed` sin `user_id`** — notificaciones imposibles de asociar al usuario destinatario (DT-09 en ARCHITECTURE.md) | Alta | Alto | **ALTA** | Aceptar (deuda técnica activa) | - El contrato oficial de `ticket.status_changed` no incluye `user_id` (ver ARCHITECTURE.md §9)<br>- Consumer crea notificación sin `user_id` → SSE no puede filtrar, campo queda vacío<br>- Bloqueante hasta que ticket-service extienda el contrato del evento<br>- Tests ⏳ pendientes: `test_status_changed_notification_has_no_user_id` |
 
 ### 7.2 Estrategias de Mitigación Detalladas
 
@@ -607,6 +633,58 @@ El endpoint SSE retorna un `StreamingHttpResponse` con un generator infinito (`w
 
 ---
 
+#### R11: `ticket.status_changed` sin `user_id` (DT-09)
+
+**Escenario de Fallo:**  
+El contrato oficial del evento `ticket.status_changed` publicado por ticket-service **no incluye el campo `user_id`**. El consumer crea la notificación pero no puede asociarla al usuario destinatario, por lo que `user_id` queda como cadena vacía `''` en la base de datos.
+
+**Impacto:**
+- El endpoint SSE filtra por `user_id` — la notificación nunca llega al usuario correcto
+- La notificación existe en DB pero es inaccesible por usuario via SSE
+- El sistema no puede cumplir el objetivo de notificaciones en tiempo real para cambios de estado
+
+**Plan de Mitigación:**
+1. **Aceptación temporal (hasta resolver DT-09):**
+   - El riesgo está documentado y aceptado conscientemente (deuda técnica activa)
+   - No se implementan workarounds que puedan enmascarar el problema
+
+2. **Opciones de resolución (bloqueadas externamente):**
+   - *Opción A (preferida):* Ticket-service extiende el contrato de `ticket.status_changed` para incluir `user_id`
+   - *Opción B (fallback):* Notification-service realiza lookup REST al ticket-service para obtener `user_id` dado `ticket_id` — introduce acoplamiento sincrónico
+
+3. **Tests pendientes ⏳:**
+   - `test_status_changed_notification_stored_without_user_id` — verificar que la notificación se crea con `user_id=''`
+   - `test_status_changed_notification_not_delivered_via_sse` — verificar que SSE no entrega la notificación (ausencia de `user_id` como filtro)
+
+**Indicadores:**
+- DT-09 cerrada en ARCHITECTURE.md cuando ticket-service extienda el contrato
+- 0 notificaciones de `ticket.status_changed` entregadas via SSE en el estado actual (comportamiento esperado hasta resolver DT-09)
+
+---
+
+#### Política de ACK/NACK del Consumer (Anexo a R01, R03, R08)
+
+El comportamiento del consumer ante distintos tipos de condición está definido explícitamente en `callback()` (`notifications/messaging/consumer.py`). La siguiente tabla resuelve la ambigüedad entre mensajes que van a DLQ y mensajes que se descartan con ACK:
+
+| Condición en `callback()` | Excepción | Comportamiento | Destino mensaje | Riesgo |
+|---------------------------|-----------|----------------|-----------------|--------|
+| Procesamiento exitoso | — | `basic_ack` ✅ | Consumido | — |
+| Body no es JSON válido | `json.JSONDecodeError` | `basic_ack` ✅ + log ERROR | Descartado | R08 |
+| Campos obligatorios faltantes | `InvalidEventSchema` | `basic_ack` ✅ + log ERROR | Descartado | R03, R08 |
+| Error inesperado del sistema | `Exception` genérica | `basic_nack(requeue=False)` ❌ | **DLQ** (`{queue}.dlq`) | R01, R08 |
+
+**Regla de diseño:** Solo los errores **inesperados del sistema** van a DLQ. Los mensajes con datos incorrectos (`InvalidEventSchema`, JSON inválido) se descartan con ACK porque:
+- Reencolarlos (`requeue=True`) generaría un loop infinito de fallos
+- La DLQ está diseñada para errores **transitorios del sistema** (DB caída, timeout), no para datos incorrectos del productor
+- Un mensaje malformado es responsabilidad del productor del evento, no del consumer
+
+**Cobertura de tests para esta política:**
+- `test_callback_acks_message_on_response_added` → ACK en flujo exitoso
+- `test_callback_logs_error_on_invalid_response_event` → ACK + log para `InvalidEventSchema`
+- `test_dead_letter_queue.py` → NACK → DLQ para `Exception` genérica
+
+---
+
 ### 7.3 Plan de Contingencia
 
 **Criterios de Abortar Release:**
@@ -775,7 +853,7 @@ Este plan de pruebas se basa en los siguientes conceptos del **ISTQB Foundation 
 
 ### 12.4 Risk-Based Testing (§5.5)
 
-- **Identificación de Riesgos:** 10 riesgos identificados (R01-R10)
+- **Identificación de Riesgos:** 11 riesgos identificados (R01-R11)
 - **Análisis de Riesgos:** Clasificación por probabilidad × impacto en ALTA/MEDIA/BAJA
 - **Mitigación:** Estrategias preventivas (tests, validaciones), detectivas (CI, logs) y correctivas (DLQ, reconexión)
 
@@ -817,6 +895,7 @@ Este plan de pruebas se basa en los siguientes conceptos del **ISTQB Foundation 
 | 1.0 | 2026-02-01 | QA Team | Plan inicial (TEST_PLAN.md) |
 | 2.0 | 2026-02-15 | QA Lead | Añadida sección de riesgos, alineado con monorepo (TEST_PLAN2.md) |
 | 3.0 | 2026-02-26 | QA Team | Plan completo ISTQB para notification-service independiente: niveles de prueba, gestión de riesgos detallada, métricas, criterios de entrada/salida |
+| 3.1 | 2026-02-26 | QA Team | Incorporación de 4 observaciones de revisión: R11 (DT-09 `ticket.status_changed` sin `user_id`), política explícita ACK/NACK, tests pendientes DT-01, expansión EP22+ para los 4 tipos de evento |
 
 ---
 
@@ -919,6 +998,9 @@ pytest -v --cov=notifications --cov-fail-under=70
 | 20 | `test_consumer_dispatch.py` | `test_callback_handles_ticket_created_normally` | Unitario | Messaging |
 | 21 | `test_consumer_dispatch.py` | `test_callback_acks_message_on_response_added` | Unitario | Messaging |
 | 22 | `test_consumer_dispatch.py` | `test_callback_logs_error_on_invalid_response_event` | Unitario | Messaging |
+| ⏳ | `test_ticket_created_use_case.py` | `test_create_notification_from_ticket_created_event` *(DT-01 — pendiente)* | Unitario | Application |
+| ⏳ | `test_ticket_created_use_case.py` | `test_ticket_created_idempotency_no_duplicate` *(EP22-C — pendiente)* | Unitario | Application |
+| ⏳ | `test_ticket_created_use_case.py` | `test_status_changed_notification_stored_without_user_id` *(R11/DT-09 — pendiente)* | Unitario | Messaging |
 | 23 | `test_infrastructure.py` | `test_save_new_notification` | Integración | Infrastructure |
 | 24 | `test_infrastructure.py` | `test_save_existing_notification` | Integración | Infrastructure |
 | 25 | `test_infrastructure.py` | `test_find_by_id_existing` | Integración | Infrastructure |
@@ -956,6 +1038,7 @@ pytest -v --cov=notifications --cov-fail-under=70
 - **NACK (Negative Acknowledgement):** Rechazo de un mensaje (enrutado a DLQ si `requeue=False`)
 - **EP21:** Escenario de Prueba 21 — Validación de schema de eventos
 - **EP22:** Escenario de Prueba 22 — Idempotencia por `response_id`
+- **EP22+:** Extensión — Idempotencia diferenciada para los 4 tipos de evento (ver §4.2 tabla EP22+)
 - **EP23:** Escenario de Prueba 23 — SSE streaming con filtrado por `user_id`
 - **ORM (Object-Relational Mapping):** Mapeo objeto-relacional (Django ORM)
 - **ABC (Abstract Base Class):** Clase base abstracta de Python para definir interfaces
