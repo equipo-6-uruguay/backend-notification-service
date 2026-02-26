@@ -161,7 +161,7 @@ def callback(ch, method, properties, body):
         ch.basic_ack(delivery_tag=method.delivery_tag)
     except InvalidEventSchema as exc:
         logger.error("Invalid event schema for %s: %s", event_type, exc)
-        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+        ch.basic_ack(delivery_tag=method.delivery_tag)
     except Exception as exc:
         logger.error("Error processing event %s: %s", event_type, exc)
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
