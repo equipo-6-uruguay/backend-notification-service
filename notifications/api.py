@@ -65,6 +65,32 @@ class NotificationViewSet(viewsets.ModelViewSet):
             repository=self.repository
         )
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Métodos HTTP no permitidos — las notificaciones se crean solo por eventos
+    # de dominio (RabbitMQ), nunca directamente por API REST.
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def create(self, request, *args, **kwargs):
+        """POST no permitido: las notificaciones se crean mediante eventos de dominio."""
+        return Response(
+            {"error": "Las notificaciones se crean mediante eventos de dominio. Operación no permitida."},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        """PUT no permitido: use PATCH /notifications/{id}/read/ para marcar como leída."""
+        return Response(
+            {"error": "Operación no permitida. Use PATCH /notifications/{id}/read/ para marcar como leída."},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        """PATCH sobre el recurso base no permitido: use PATCH /notifications/{id}/read/."""
+        return Response(
+            {"error": "Operación no permitida. Use PATCH /notifications/{id}/read/ para marcar como leída."},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
     @action(detail=True, methods=['patch'], url_path='read')
     def read(self, request, pk=None):
         """
@@ -95,6 +121,12 @@ class NotificationViewSet(viewsets.ModelViewSet):
                 {"error": str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except Exception as e:
+            # Error inesperado — devolver JSON en lugar de HTML
+            return Response(
+                {"error": "Error interno del servidor.", "detail": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     def destroy(self, request, *args, **kwargs):
         """
@@ -107,6 +139,11 @@ class NotificationViewSet(viewsets.ModelViewSet):
             return Response(status=status.HTTP_204_NO_CONTENT)
         except NotificationNotFound as e:
             return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response(
+                {"error": "Error interno del servidor.", "detail": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @action(detail=False, methods=['delete'], url_path='clear')
     def clear_all(self, request):
@@ -115,6 +152,12 @@ class NotificationViewSet(viewsets.ModelViewSet):
         filtraría por id de usuario, de momento borra las consultadas en la vista.
         """
         # Se asume limpieza global temporalmente, o extraer user_id del view si existiese.
-        command = ClearAllNotificationsCommand()
-        self.clear_all_use_case.execute(command)
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        try:
+            command = ClearAllNotificationsCommand()
+            self.clear_all_use_case.execute(command)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Exception as e:
+            return Response(
+                {"error": "Error interno del servidor.", "detail": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
