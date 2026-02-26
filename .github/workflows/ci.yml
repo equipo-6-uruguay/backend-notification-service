@@ -68,7 +68,9 @@ jobs:
 
       # ── 4. Tests con cobertura ───────────────────────────────────────────
       # --cov-fail-under=70 hace que el job falle si la cobertura es < 70%
+      # --timeout=30 evita que tests SSE o de integración bloqueen el runner
       - name: Ejecutar tests con cobertura
+        timeout-minutes: 10
         run: |
           pytest \
             --cov=notifications \

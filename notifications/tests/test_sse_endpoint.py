@@ -11,12 +11,32 @@ Estos tests validan:
 Fase TDD: RED — Estos tests DEBEN FALLAR porque la vista SSE no existe aún.
 """
 
+import itertools
 import json
 
 from django.test import TestCase, TransactionTestCase
 from django.http import StreamingHttpResponse
 
 from notifications.models import Notification
+
+
+def _read_sse_chunks(response, max_chunks: int) -> str:
+    """Lee exactamente los primeros max_chunks del stream SSE.
+
+    El generador SSE emite un heartbeat inicial + todas las notificaciones
+    existentes y luego entra en un bucle infinito con time.sleep().
+    Consumir solo los primeros N chunks (1 heartbeat + N-1 notificaciones
+    ya persistidas) evita bloquear el runner de tests.
+
+    Args:
+        response: StreamingHttpResponse del endpoint SSE.
+        max_chunks: Número exacto de chunks a leer (1 heartbeat + notifs esperadas).
+
+    Returns:
+        Contenido decodificado con los chunks leídos.
+    """
+    chunks = list(itertools.islice(response.streaming_content, max_chunks))
+    return b''.join(chunks).decode('utf-8')
 
 
 class TestSSEEndpointConnectivity(TransactionTestCase):
@@ -47,7 +67,7 @@ class TestSSEEndpointConnectivity(TransactionTestCase):
         
         Criterio EP23: Solo se envían notificaciones al usuario correspondiente.
         """
-        # Arrange: crear notificaciones para user-123
+        # Arrange: crear notificaciones para user-123 y user-456
         Notification.objects.create(
             ticket_id="42",
             message="Nueva respuesta en Ticket #42",
@@ -60,8 +80,9 @@ class TestSSEEndpointConnectivity(TransactionTestCase):
         )
 
         # Act: conectar al SSE para user-123
+        # max_chunks = 1 heartbeat + 1 notif de user-123 (user-456 es filtrada)
         response = self.client.get('/api/notifications/sse/user-123/')
-        content = b''.join(response.streaming_content).decode('utf-8')
+        content = _read_sse_chunks(response, max_chunks=2)
 
         # Assert: solo debe contener la notificación de user-123
         assert 'Ticket #42' in content
@@ -80,9 +101,9 @@ class TestSSEEndpointConnectivity(TransactionTestCase):
             user_id="user-123"
         )
 
-        # Act
+        # Act: max_chunks = 1 heartbeat + 1 notif existente
         response = self.client.get('/api/notifications/sse/user-123/')
-        content = b''.join(response.streaming_content).decode('utf-8')
+        content = _read_sse_chunks(response, max_chunks=2)
 
         # Assert: formato SSE correcto
         assert 'event: notification' in content
@@ -116,8 +137,9 @@ class TestSSEHeartbeatAndFiltering(TransactionTestCase):
         
         Un heartbeat SSE es un comentario con formato ': ping\\n\\n' o ':heartbeat\\n\\n'.
         """
+        # max_chunks = 1: solo el heartbeat inicial (sin notifs creadas)
         response = self.client.get('/api/notifications/sse/user-123/')
-        content = b''.join(response.streaming_content).decode('utf-8')
+        content = _read_sse_chunks(response, max_chunks=1)
 
         # El stream debe contener al menos un comentario de heartbeat
         assert ': heartbeat' in content or ':heartbeat' in content
@@ -138,9 +160,9 @@ class TestSSEHeartbeatAndFiltering(TransactionTestCase):
             ticket_id="30", message="Another for user-A", user_id="user-A"
         )
 
-        # Act: conectar como user-A
+        # Act: max_chunks = 1 heartbeat + 2 notifs de user-A
         response = self.client.get('/api/notifications/sse/user-A/')
-        content = b''.join(response.streaming_content).decode('utf-8')
+        content = _read_sse_chunks(response, max_chunks=3)
 
         # Assert: solo notificaciones de user-A
         lines_with_data = [l for l in content.split('\n') if l.startswith('data: ')]
@@ -164,9 +186,9 @@ class TestSSEHeartbeatAndFiltering(TransactionTestCase):
             response_id=7
         )
 
-        # Act
+        # Act: max_chunks = 1 heartbeat + 1 notif existente
         response = self.client.get('/api/notifications/sse/user-123/')
-        content = b''.join(response.streaming_content).decode('utf-8')
+        content = _read_sse_chunks(response, max_chunks=2)
 
         # Assert: el payload debe tener response_id
         for line in content.split('\n'):
@@ -183,8 +205,9 @@ class TestSSEHeartbeatAndFiltering(TransactionTestCase):
         
         Esto es necesario para confirmar que la conexión SSE está activa.
         """
+        # max_chunks = 1: sin notifs, solo el heartbeat inicial
         response = self.client.get('/api/notifications/sse/user-empty/')
-        content = b''.join(response.streaming_content).decode('utf-8')
+        content = _read_sse_chunks(response, max_chunks=1)
 
         # Sin notificaciones, pero el heartbeat debe estar presente
         assert len(content.strip()) > 0, "El stream no debe estar completamente vacío"
