@@ -61,16 +61,10 @@ services:
       POSTGRES_HOST: db
       RABBITMQ_HOST: rabbitmq
     # Ejecuta migraciones y levanta gunicorn (sin iniciar el consumer — es su propio servicio)
-    command: >
-      sh -c "python manage.py migrate --noinput &&
-             gunicorn notification_service.wsgi:application
-             --bind 0.0.0.0:8001
-             --workers $${GUNICORN_WORKERS:-2}
-             --timeout $${GUNICORN_TIMEOUT:-30}
-             --access-logfile -
-             --error-logfile -"
+    command: sh -c "python manage.py migrate --noinput && gunicorn notification_service.wsgi:application --bind 0.0.0.0:8001 --workers $${GUNICORN_WORKERS:-2} --worker-class $${GUNICORN_WORKER_CLASS:-gevent} --timeout $${GUNICORN_TIMEOUT:-120} --access-logfile - --error-logfile -"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/api/notifications/')\" || exit 1"]
+      # TCP check — no requiere autenticación, funciona desde el primer request
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.connect(('localhost', 8001)); s.close()\""]
       interval: 15s
       timeout: 10s
       retries: 5
