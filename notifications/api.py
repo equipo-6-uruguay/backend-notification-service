@@ -78,10 +78,12 @@ class NotificationViewSet(viewsets.ModelViewSet):
             )
             
             # Ejecutar caso de uso
-            domain_notification = self.mark_as_read_use_case.execute(command)
+            self.mark_as_read_use_case.execute(command)
             
-            # Convertir entidad de dominio a modelo Django para respuesta (sin contenido)
-            return Response(status=status.HTTP_204_NO_CONTENT)
+            # Recuperar el modelo Django actualizado y serializar para la respuesta
+            instance = Notification.objects.get(pk=int(pk))
+            serializer = self.get_serializer(instance)
+            return Response(serializer.data, status=status.HTTP_200_OK)
             
         except NotificationNotFound as e:
             # Notificación no encontrada
