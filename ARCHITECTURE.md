@@ -874,7 +874,7 @@ DELETE /api/notifications/clear/
 |----------|---------------------------------|------------------------------------|------------------|
 | `GET`    | `/api/notifications/`           | Listar todas las notificaciones    | `200 OK`         |
 | `GET`    | `/api/notifications/{id}/`      | Obtener notificación por ID        | `200 OK`         |
-| `POST`   | `/api/notifications/`           | Crear notificación                 | `201 Created`    |
+| `POST`   | `/api/notifications/`           | **Bloqueado por diseño DDD**       | `405 Method Not Allowed` |
 | `PATCH`  | `/api/notifications/{id}/read/` | Marcar notificación como leída     | `200 OK`         |
 | `DELETE` | `/api/notifications/{id}/`      | Eliminar notificación individual   | `204 No Content` |
 | `DELETE` | `/api/notifications/clear/`     | Eliminar todas las notificaciones  | `204 No Content` |
