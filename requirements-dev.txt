@@ -1,0 +1,6 @@
+# Dependencias de desarrollo y testing — NO incluir en la imagen Docker de produccion [DT-04]
+-r requirements.txt
+
+pytest==8.3.4
+pytest-django==4.9.0
+pytest-cov==5.0.0
