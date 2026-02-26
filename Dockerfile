@@ -22,6 +22,11 @@ RUN addgroup --system appgroup \
 
 USER appuser
 
-EXPOSE 8000
+EXPOSE 8001
+
+# Healthcheck: verifica que la API responda antes de que el orquestador
+# marque el contenedor como healthy (usado por docker-compose depends_on)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/api/notifications/')" || exit 1
 
 CMD ["/app/entrypoint.sh"]

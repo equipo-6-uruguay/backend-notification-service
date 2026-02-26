@@ -1,0 +1,52 @@
+# Control de versiones
+.git
+.gitignore
+.github
+
+# Entorno virtual Python
+.venv
+venv
+env
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Tests y cobertura (no se necesitan en la imagen de produccion)
+notifications/tests/
+notifications/messaging/test_*.py
+.pytest_cache
+htmlcov/
+.coverage
+coverage.xml
+pytest.ini
+
+# Archivos de desarrollo y documentacion
+*.md
+ARCHITECTURE*.md
+BEFORE_AFTER.md
+DEUDA_TECNICA.md
+HANDOVER_REPORT.md
+QUICK_START_DDD.md
+REFACTORIZATION_COMPLETED.md
+AUDITORIA.md
+FRONTEND_INTEGRATION.md
+
+# Dependencias de desarrollo
+requirements-dev.txt
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+
+# IDEs y editores
+.vscode
+.idea
+*.swp
+*.swo
+
+# Variables de entorno locales
+.env
+.env.*
+!.env.example
