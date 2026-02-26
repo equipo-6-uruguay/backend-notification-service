@@ -21,6 +21,7 @@
 10. [Entregables](#10-entregables)
 11. [Métricas de Calidad](#11-métricas-de-calidad)
 12. [Referencias ISTQB](#12-referencias-istqb)
+13. [Diseño de Casos de Prueba — Actividad 3.2](#13-diseño-de-casos-de-prueba--actividad-32)
 
 ---
 
@@ -896,6 +897,7 @@ Este plan de pruebas se basa en los siguientes conceptos del **ISTQB Foundation 
 | 2.0 | 2026-02-15 | QA Lead | Añadida sección de riesgos, alineado con monorepo (TEST_PLAN2.md) |
 | 3.0 | 2026-02-26 | QA Team | Plan completo ISTQB para notification-service independiente: niveles de prueba, gestión de riesgos detallada, métricas, criterios de entrada/salida |
 | 3.1 | 2026-02-26 | QA Team | Incorporación de 4 observaciones de revisión: R11 (DT-09 `ticket.status_changed` sin `user_id`), política explícita ACK/NACK, tests pendientes DT-01, expansión EP22+ para los 4 tipos de evento |
+| 3.2 | 2026-02-26 | QA Team | Actividad 3.2: Diseño de casos de prueba en lenguaje Gherkin (§13) — 30 casos organizados por épica con matriz de ejecución manual |
 
 ---
 
@@ -1046,5 +1048,537 @@ pytest -v --cov=notifications --cov-fail-under=70
 
 ---
 
-**📋 Plan de Pruebas v3.0 — Backend Notification Service**  
+## 13. Diseño de Casos de Prueba — Actividad 3.2
+
+> **Actividad 3.2 — Taller Semana 3:** Diseñar casos de prueba redactados en lenguaje Gherkin (Given/When/Then), aplicando técnicas de diseño para maximizar la cobertura. Los escenarios se organizan en una matriz de pruebas donde se registra la ejecución manual indicando el resultado obtenido (Pasó/Falló).
+
+### 13.1 Matriz de Pruebas (Resumen de Ejecución Manual)
+
+La siguiente tabla funciona como **hoja de cálculo de ejecución manual**. Cada fila referencia un caso Gherkin detallado en las subsecciones 13.2–13.7. La columna **Resultado** se actualiza tras la ejecución.
+
+| ID | Épica | US | Técnica | Escenario (resumen) | Prioridad | Auto | Resultado |
+|----|-------|-----|---------|---------------------|-----------|------|-----------|
+| TC-E1-01 | E1 | US-E1-01 | EP | `ticket.created` → notificación persistida | Alta | ✅ | ✅ Pasó |
+| TC-E1-02 | E1 | US-E1-01 | DT | `ticket.created` sin campos obligatorios → DLQ | Alta | ✅ | ✅ Pasó |
+| TC-E1-03 | E1 | US-E1-01 | BVA | Contenido del mensaje generado (Scenario Outline) | Media | ✅ | ✅ Pasó |
+| TC-E1-04 | E1 | US-E1-02 | EP | `ticket.response_added` → notificación con response_id | Alta | ✅ | ✅ Pasó |
+| TC-E1-05 | E1 | US-E1-02 | DT | `ticket.response_added` sin campos → InvalidEventSchema + ACK | Alta | ✅ | ✅ Pasó |
+| TC-E1-06 | E1 | US-E1-02 | EP | response_text vacío → notificación sin texto de respuesta | Media | ✅ | ✅ Pasó |
+| TC-E1-07 | E1 | US-E1-02 | BVA | response_text > 255 chars → message truncado | Media | ✅ | ✅ Pasó |
+| TC-E1-08 | E1 | US-E1-05 | EP | Mismo response_id duplicado → no crea segunda notificación | Alta | ✅ | ✅ Pasó |
+| TC-E1-09 | E1 | US-E1-02 | EP | Dos response_id distintos → dos notificaciones independientes | Alta | ✅ | ✅ Pasó |
+| TC-E1-10 | E1 | US-E1-03 | EP | `ticket.status_changed` → notificación (estado objetivo) | Alta | ⏳ | ⏳ Pendiente (DT-09) |
+| TC-E1-11 | E1 | US-E1-03 | EP/Outline | Variación por new_status: open, in_progress, closed | Media | ⏳ | ⏳ Pendiente (DT-09) |
+| TC-E1-12 | E1 | US-E1-03 | DT | `ticket.status_changed` sin user_id → comportamiento actual | Alta | ⏳ | ⏳ Pendiente (R11/DT-09) |
+| TC-E1-13 | E1 | US-E1-04 | EP | `ticket.priority_changed` → notificación | Media | ✅ | ✅ Pasó |
+| TC-E1-14 | E1 | US-E1-04 | EP/Outline | Variación por new_priority: high, medium, low | Media | ✅ | ✅ Pasó |
+| TC-E1-15 | E1 | US-E1-04 | Negativa | Prioridad fuera de catálogo → DLQ | Media | ✅ | ✅ Pasó |
+| TC-E1-16 | E1 | US-E1-05 | EP | Evento duplicado ticket.created → descartado | Alta | ⏳ | ⏳ Pendiente (DT-01) |
+| TC-E1-17 | E1 | US-E1-05 | EP | Mismo ticket_id + distinto event_type → no es duplicado | Alta | ✅ | ✅ Pasó |
+| TC-E2-01 | E2 | US-E2-01 | EP | GET /api/notifications/ → lista con notificaciones | Alta | ✅ | ✅ Pasó |
+| TC-E2-02 | E2 | US-E2-01 | BVA | GET /api/notifications/ con 0 notificaciones → lista vacía | Media | ✅ | ✅ Pasó |
+| TC-E2-03 | E2 | US-E2-02 | EP | GET /api/notifications/{id}/ → 200 + detalle | Alta | ✅ | ✅ Pasó |
+| TC-E2-04 | E2 | US-E2-02 | Negativa | GET /api/notifications/999/ → 404 | Alta | ✅ | ✅ Pasó |
+| TC-E3-01 | E3 | US-E3-01 | ST | PATCH read/ sobre notificación no leída → read: true | Alta | ✅ | ✅ Pasó |
+| TC-E3-02 | E3 | US-E3-01 | ST | PATCH read/ sobre notificación ya leída → idempotente 200 | Alta | ✅ | ✅ Pasó |
+| TC-E3-03 | E3 | US-E3-01 | Negativa | PATCH read/ sobre id inexistente → 404 | Alta | ✅ | ✅ Pasó |
+| TC-E4-01 | E4 | US-E4-01 | EP | DELETE /api/notifications/{id}/ → 204 | Media | ✅ | ✅ Pasó |
+| TC-E4-02 | E4 | US-E4-01 | Negativa | DELETE id inexistente → 404 | Media | ✅ | ✅ Pasó |
+| TC-E4-03 | E4 | US-E4-02 | EP | DELETE /api/notifications/clear/ → 204 + bandeja vacía | Media | ✅ | ✅ Pasó |
+| TC-E4-04 | E4 | US-E4-02 | ST | Clear all con bandeja ya vacía → 204 (idempotente) | Media | ✅ | ✅ Pasó |
+| TC-E5-01 | E5 | US-E5-01 | ST | Reconexión automática tras caída del broker | Alta | ✅ | ✅ Pasó |
+| TC-E5-02 | E5 | US-E5-02 | DT | JSON inválido → ACK + descartado (ver política §7.2) | Alta | ✅ | ✅ Pasó |
+| TC-E5-03 | E5 | US-E5-02 | DT | Error inesperado → NACK → DLQ | Alta | ✅ | ✅ Pasó |
+| TC-NEG-01 | E2 | — | Negativa | POST /api/notifications/ → 405 Method Not Allowed | Alta | ✅ | ✅ Pasó |
+| TC-NEG-02 | E2 | — | Negativa | PUT /api/notifications/{id}/ → 405 | Alta | ✅ | ✅ Pasó |
+
+**Leyenda:**
+- **Auto:** ✅ = automatizado en pytest | ⏳ = pendiente de automatización
+- **Resultado:** ✅ Pasó | ❌ Falló | ⏳ Pendiente | 🔄 Re-test
+- **Técnica:** EP = Partición de Equivalencia | BVA = Análisis de Valores Límite | ST = Transición de Estados | DT = Tabla de Decisiones | Negativa = Prueba negativa
+
+---
+
+### 13.2 Casos Gherkin — EPIC E1: Ingesta de Eventos de Dominio
+
+#### TC-E1-01 a TC-E1-03: `ticket.created` (US-E1-01)
+
+```gherkin
+@epic:E1 @story:US-E1-01 @technique:EP,DT,BVA
+Feature: Notificación por creación de ticket
+
+  Background:
+    Given el consumidor RabbitMQ está activo y suscrito a la cola de eventos
+    And la base de datos de notificaciones está disponible
+
+  # TC-E1-01 — Técnica: Partición de Equivalencia (evento válido)
+  Scenario: Procesamiento exitoso de evento ticket.created
+    Given se recibe un evento con event_type "ticket.created"
+    And los campos ticket_id, title, user_id, status y timestamp están presentes y válidos
+    When el consumidor procesa el mensaje
+    Then se persiste una notificación con message que referencia el título del ticket
+    And la notificación queda asociada al user_id del evento
+    And la notificación queda en estado no leída (read: false)
+    And el mensaje es confirmado con basic_ack en la cola
+
+  # TC-E1-02 — Técnica: Tabla de Decisiones (campos ausentes)
+  Scenario: Evento ticket.created con campos obligatorios ausentes
+    Given se recibe un evento con event_type "ticket.created"
+    And uno o más de los campos obligatorios (ticket_id, user_id, title) están ausentes
+    When el consumidor intenta procesar el mensaje
+    Then no se persiste ninguna notificación
+    And el mensaje es rechazado con basic_nack(requeue=False) hacia la DLQ
+    And se registra un log de nivel ERROR con el motivo del rechazo
+
+  # TC-E1-03 — Técnica: BVA (contenido del mensaje generado)
+  Scenario Outline: Contenido del mensaje de notificación generado
+    Given se recibe un evento ticket.created con title "<title>" y ticket_id <ticket_id>
+    When el consumidor procesa el mensaje exitosamente
+    Then el message de la notificación contiene el título "<title>"
+    And el ticket_id almacenado en la notificación es <ticket_id>
+
+    Examples:
+      | title                | ticket_id |
+      | Error en facturación | 101       |
+      | Solicitud de acceso  | 202       |
+```
+
+#### TC-E1-04 a TC-E1-09: `ticket.response_added` (US-E1-02, US-E1-05)
+
+```gherkin
+@epic:E1 @story:US-E1-02,US-E1-05 @technique:EP,DT,BVA
+Feature: Notificación por respuesta agregada a ticket
+
+  Background:
+    Given el consumidor RabbitMQ está activo y suscrito a la cola de eventos
+    And la base de datos de notificaciones está disponible
+
+  # TC-E1-04 — Técnica: Partición de Equivalencia (evento válido)
+  Scenario: Procesamiento exitoso de evento ticket.response_added
+    Given se recibe un evento con event_type "ticket.response_added"
+    And los campos ticket_id, response_id, admin_id, response_text, user_id y timestamp están presentes
+    When el consumidor procesa el mensaje
+    Then se persiste una notificación asociada al user_id del evento
+    And el campo response_id queda almacenado internamente como clave de idempotencia
+    And la notificación queda en estado no leída (read: false)
+    And el mensaje es confirmado con basic_ack en la cola
+
+  # TC-E1-05 — Técnica: Tabla de Decisiones (campos ausentes → InvalidEventSchema)
+  Scenario Outline: Evento ticket.response_added con campos obligatorios ausentes
+    Given se recibe un evento con event_type "ticket.response_added"
+    And el campo "<campo_ausente>" está ausente del payload
+    When el consumidor intenta procesar el mensaje
+    Then se lanza InvalidEventSchema con el campo "<campo_ausente>" en el mensaje de error
+    And no se persiste ninguna notificación
+    And el mensaje es confirmado con basic_ack (descartado, no va a DLQ)
+    And se registra un log de nivel ERROR
+
+    Examples:
+      | campo_ausente |
+      | ticket_id     |
+      | response_id   |
+      | user_id       |
+
+  # TC-E1-06 — Técnica: Partición de Equivalencia (response_text vacío)
+  Scenario: El texto de respuesta está vacío
+    Given se recibe un evento ticket.response_added con response_text vacío ""
+    And los demás campos obligatorios están presentes
+    When el consumidor procesa el mensaje
+    Then se persiste la notificación sin incluir texto de respuesta en el message
+    And la notificación queda correctamente asociada al ticket_id y user_id
+
+  # TC-E1-07 — Técnica: BVA (response_text en el límite)
+  Scenario: El texto de respuesta supera el límite de caracteres permitido
+    Given se recibe un evento ticket.response_added con response_text de más de 255 caracteres
+    When el consumidor procesa el mensaje
+    Then se persiste la notificación con el message truncado o adaptado al límite disponible
+    And no se lanza ningún error de validación
+
+  # TC-E1-08 — Técnica: EP (idempotencia EP22-B)
+  Scenario: El mismo response_id es recibido dos veces (duplicado)
+    Given existe ya una notificación para ticket_id 101 con response_id 55
+    When se recibe nuevamente un evento ticket.response_added con ticket_id 101 y response_id 55
+    Then no se crea una nueva notificación
+    And el mensaje es confirmado con basic_ack en la cola
+    And el total de notificaciones para ticket_id 101 con response_id 55 es exactamente 1
+
+  # TC-E1-09 — Técnica: EP (dos response_id distintos no son duplicados)
+  Scenario: Dos respuestas distintas al mismo ticket no son duplicados
+    Given existe una notificación para ticket_id 101 con response_id 55
+    When se recibe un evento ticket.response_added con ticket_id 101 y response_id 56
+    Then se persiste una nueva notificación para response_id 56
+    And ambas notificaciones coexisten en la base de datos
+```
+
+#### TC-E1-10 a TC-E1-12: `ticket.status_changed` (US-E1-03)
+
+```gherkin
+@epic:E1 @story:US-E1-03 @technique:EP,DT @blocked:DT-09
+Feature: Notificación por cambio de estado de ticket
+
+  Background:
+    Given el consumidor RabbitMQ está activo y suscrito a la cola de eventos
+    And la base de datos de notificaciones está disponible
+
+  # TC-E1-10 — Técnica: EP (evento válido — estado objetivo post DT-09)
+  # ⏳ PENDIENTE: Requiere que ticket-service incluya user_id en el contrato
+  Scenario: Procesamiento exitoso de evento ticket.status_changed (estado objetivo)
+    Given se recibe un evento con event_type "ticket.status_changed"
+    And los campos ticket_id, new_status, user_id y timestamp están presentes
+    When el consumidor procesa el mensaje
+    Then se persiste una notificación asociada al user_id del evento
+    And el message incluye el nuevo estado del ticket
+    And la notificación queda en estado no leída (read: false)
+    And el mensaje es confirmado con basic_ack en la cola
+
+  # TC-E1-11 — Técnica: EP + Scenario Outline (variaciones de estado)
+  # ⏳ PENDIENTE: Requiere resolución de DT-09
+  Scenario Outline: Notificación generada según el nuevo estado
+    Given se recibe un evento ticket.status_changed con new_status "<new_status>" y ticket_id <ticket_id>
+    When el consumidor procesa el mensaje
+    Then el message de la notificación menciona el estado "<new_status>"
+
+    Examples:
+      | new_status  | ticket_id |
+      | in_progress | 301       |
+      | closed      | 302       |
+      | open        | 303       |
+
+  # TC-E1-12 — Técnica: DT (comportamiento actual — sin user_id en contrato)
+  # ⏳ PENDIENTE: Documenta el comportamiento actual bloqueado por R11/DT-09
+  Scenario: Evento ticket.status_changed sin user_id (comportamiento actual)
+    Given el consumer está activo y conectado a RabbitMQ
+    When llega un evento con event_type "ticket.status_changed"
+    And el payload contiene ticket_id, old_status, new_status y timestamp
+    And el campo user_id NO está presente en el payload
+    Then el consumer crea una notificación con user_id vacío
+    And la notificación NO es entregada via SSE (sin user_id para filtrar)
+    And se registra un log indicando la ausencia de user_id
+```
+
+#### TC-E1-13 a TC-E1-15: `ticket.priority_changed` (US-E1-04)
+
+```gherkin
+@epic:E1 @story:US-E1-04 @technique:EP,Negativa
+Feature: Notificación por cambio de prioridad de ticket
+
+  Background:
+    Given el consumidor RabbitMQ está activo y suscrito a la cola de eventos
+    And la base de datos de notificaciones está disponible
+
+  # TC-E1-13 — Técnica: EP (evento válido)
+  Scenario: Procesamiento exitoso de evento ticket.priority_changed
+    Given se recibe un evento con event_type "ticket.priority_changed"
+    And los campos ticket_id, new_priority, user_id y timestamp están presentes
+    When el consumidor procesa el mensaje
+    Then se persiste una notificación asociada al user_id del evento
+    And el message incluye la nueva prioridad del ticket
+    And la notificación queda en estado no leída (read: false)
+    And el mensaje es confirmado con basic_ack en la cola
+
+  # TC-E1-14 — Técnica: EP + Scenario Outline (variaciones de prioridad)
+  Scenario Outline: Notificación generada según la nueva prioridad
+    Given se recibe un evento ticket.priority_changed con new_priority "<new_priority>"
+    When el consumidor procesa el mensaje
+    Then el message de la notificación menciona la prioridad "<new_priority>"
+
+    Examples:
+      | new_priority |
+      | high         |
+      | medium       |
+      | low          |
+
+  # TC-E1-15 — Técnica: Prueba Negativa (prioridad fuera de catálogo)
+  Scenario: Evento ticket.priority_changed con prioridad inválida
+    Given se recibe un evento con new_priority "critical"
+    When el consumidor intenta procesar el mensaje
+    Then no se persiste ninguna notificación
+    And el mensaje es rechazado hacia la DLQ
+    And se registra un log de error indicando prioridad inválida
+```
+
+#### TC-E1-16 a TC-E1-17: Idempotencia transversal (US-E1-05)
+
+```gherkin
+@epic:E1 @story:US-E1-05 @technique:EP @idempotency:EP22+
+Feature: Idempotencia en la creación de notificaciones
+
+  Background:
+    Given el consumidor RabbitMQ está activo
+    And la base de datos de notificaciones está disponible
+
+  # TC-E1-16 — Técnica: EP (duplicado de ticket.created → descartado)
+  # ⏳ PENDIENTE: DT-01 — no hay use case; consumer usa ORM directo sin verificación
+  Scenario: Evento duplicado ticket.created es descartado
+    Given existe ya una notificación para ticket_id 101 con event_type "ticket.created"
+    When se recibe nuevamente un evento con ticket_id 101 y event_type "ticket.created"
+    Then no se crea una nueva notificación
+    And el mensaje es confirmado con basic_ack en la cola
+    And se registra un log de advertencia indicando evento duplicado
+
+  # TC-E1-17 — Técnica: EP (mismo ticket_id, distinto event_type → NO es duplicado)
+  Scenario: Evento del mismo ticket_id pero distinto event_type no es duplicado
+    Given existe una notificación para ticket_id 101 con event_type "ticket.created"
+    When se recibe un evento con ticket_id 101 y event_type "ticket.status_changed"
+    Then se persiste una nueva notificación para ticket_id 101
+    And ambas notificaciones coexisten en la base de datos
+```
+
+---
+
+### 13.3 Casos Gherkin — EPIC E2: Consulta de Notificaciones vía REST
+
+```gherkin
+@epic:E2 @story:US-E2-01,US-E2-02 @technique:EP,BVA,Negativa
+Feature: Consulta de notificaciones por API REST
+
+  Background:
+    Given la API REST del notification-service está disponible
+
+  # TC-E2-01 — Técnica: EP (listado con datos)
+  Scenario: Listado exitoso con notificaciones existentes
+    Given existen 3 notificaciones persistidas en el sistema
+    When el frontend realiza un GET a /api/notifications/
+    Then la respuesta tiene código HTTP 200
+    And el body contiene una lista con 3 notificaciones
+    And cada notificación incluye los campos: id, ticket_id, message, read, sent_at
+    And la primera notificación de la lista es la más reciente (orden descendente por sent_at)
+
+  # TC-E2-02 — Técnica: BVA (lista vacía — valor límite 0 elementos)
+  Scenario: Listado exitoso con bandeja vacía
+    Given no existe ninguna notificación en el sistema
+    When el frontend realiza un GET a /api/notifications/
+    Then la respuesta tiene código HTTP 200
+    And el body contiene una lista vacía []
+
+  # TC-E2-03 — Técnica: EP (detalle por ID)
+  Scenario: Consulta exitosa de notificación existente
+    Given existe una notificación con id 42
+    When el frontend realiza un GET a /api/notifications/42/
+    Then la respuesta tiene código HTTP 200
+    And el body contiene los campos: id, ticket_id, message, read, sent_at
+    And el campo id del body es 42
+
+  # TC-E2-04 — Técnica: Prueba Negativa (ID inexistente)
+  Scenario: Consulta de notificación inexistente
+    Given no existe ninguna notificación con id 999
+    When el frontend realiza un GET a /api/notifications/999/
+    Then la respuesta tiene código HTTP 404
+    And el body contiene un mensaje de error descriptivo
+```
+
+---
+
+### 13.4 Casos Gherkin — EPIC E3: Gestión del Estado de Lectura
+
+```gherkin
+@epic:E3 @story:US-E3-01 @technique:ST,Negativa
+Feature: Marcar notificación como leída
+
+  Background:
+    Given la API REST del notification-service está disponible
+
+  # TC-E3-01 — Técnica: Transición de Estados (read: false → true)
+  Scenario: Marcar como leída una notificación no leída
+    Given existe una notificación con id 42 en estado no leída (read: false)
+    When el frontend realiza un PATCH a /api/notifications/42/read/
+    Then la respuesta tiene código HTTP 200
+    And el body contiene la notificación actualizada con read: true
+    And el evento de dominio NotificationMarkedAsRead es generado
+
+  # TC-E3-02 — Técnica: Transición de Estados (idempotencia — ya leída)
+  Scenario: Marcar como leída una notificación ya leída es idempotente
+    Given existe una notificación con id 42 en estado leída (read: true)
+    When el frontend realiza un PATCH a /api/notifications/42/read/
+    Then la respuesta tiene código HTTP 200
+    And el body contiene la notificación con read: true sin cambios
+    And NO se genera un segundo evento NotificationMarkedAsRead
+
+  # TC-E3-03 — Técnica: Prueba Negativa (id inexistente)
+  Scenario: Intentar marcar como leída una notificación inexistente
+    Given no existe ninguna notificación con id 999
+    When el frontend realiza un PATCH a /api/notifications/999/read/
+    Then la respuesta tiene código HTTP 404
+    And el body contiene un mensaje de error descriptivo
+```
+
+---
+
+### 13.5 Casos Gherkin — EPIC E4: Eliminación de Notificaciones
+
+```gherkin
+@epic:E4 @story:US-E4-01,US-E4-02 @technique:EP,ST,Negativa
+Feature: Eliminación de notificaciones
+
+  Background:
+    Given la API REST del notification-service está disponible
+
+  # TC-E4-01 — Técnica: EP (eliminación individual exitosa)
+  Scenario: Eliminación exitosa de notificación existente
+    Given existe una notificación con id 42
+    When el frontend realiza un DELETE a /api/notifications/42/
+    Then la respuesta tiene código HTTP 204
+    And el body está vacío
+    And un GET posterior a /api/notifications/42/ retorna 404
+
+  # TC-E4-02 — Técnica: Prueba Negativa (id inexistente)
+  Scenario: Intentar eliminar una notificación inexistente
+    Given no existe ninguna notificación con id 999
+    When el frontend realiza un DELETE a /api/notifications/999/
+    Then la respuesta tiene código HTTP 404
+
+  # TC-E4-03 — Técnica: EP (clear all con datos)
+  Scenario: Clear all con notificaciones existentes
+    Given existen 5 notificaciones en el sistema
+    When el frontend realiza un DELETE a /api/notifications/clear/
+    Then la respuesta tiene código HTTP 204
+    And el body está vacío
+    And un GET posterior a /api/notifications/ retorna una lista vacía []
+
+  # TC-E4-04 — Técnica: Transición de Estados (clear all idempotente)
+  Scenario: Clear all con bandeja ya vacía es idempotente
+    Given no existe ninguna notificación en el sistema
+    When el frontend realiza un DELETE a /api/notifications/clear/
+    Then la respuesta tiene código HTTP 204
+    And no se genera ningún error
+```
+
+---
+
+### 13.6 Casos Gherkin — EPIC E5: Resiliencia del Consumidor RabbitMQ
+
+```gherkin
+@epic:E5 @story:US-E5-01,US-E5-02 @technique:ST,DT
+Feature: Resiliencia del consumidor RabbitMQ
+
+  # TC-E5-01 — Técnica: Transición de Estados (connected → disconnected → reconnecting → connected)
+  Scenario: Reconexión exitosa tras caída temporal del broker
+    Given el consumidor está activo y procesando eventos
+    When el broker RabbitMQ se vuelve inaccesible
+    Then el consumidor detecta la pérdida de conexión
+    And el consumidor intenta reconectarse con backoff exponencial
+    And cuando el broker vuelve a estar disponible el consumidor restablece la conexión
+    And el consumidor retoma el procesamiento de mensajes sin intervención manual
+    And se registra un log de advertencia por cada intento de reconexión fallido
+
+  # TC-E5-02 — Técnica: Tabla de Decisiones (política ACK/NACK — ver §7.2)
+  Scenario: Mensaje con JSON inválido es descartado con ACK
+    Given se recibe un mensaje cuyo body no es JSON válido
+    When el consumidor intenta deserializar el mensaje
+    Then el mensaje es confirmado con basic_ack (descartado)
+    And se registra un log de nivel ERROR
+    And el consumidor continúa procesando el siguiente mensaje
+    And el mensaje NO es enviado a la DLQ
+
+  # TC-E5-03 — Técnica: Tabla de Decisiones (error inesperado → DLQ)
+  Scenario: Error inesperado del sistema envía mensaje a DLQ
+    Given se recibe un mensaje estructuralmente válido
+    When ocurre una excepción no controlada durante el procesamiento
+    Then el mensaje es rechazado con basic_nack(requeue=False)
+    And el mensaje es enrutado a la Dead Letter Queue ({queue}.dlq)
+    And el proceso del consumidor NO termina
+    And se registra un log de nivel ERROR con el stack trace del fallo
+```
+
+---
+
+### 13.7 Casos Gherkin — Pruebas Negativas Transversales (DDD: Bloqueo HTTP)
+
+```gherkin
+@epic:E2 @technique:Negativa @architecture:DDD
+Feature: Bloqueo de operaciones HTTP de creación (regla arquitectónica DDD)
+
+  Las notificaciones solo se crean mediante eventos de dominio vía RabbitMQ.
+  Los métodos HTTP de creación/modificación directa están bloqueados por diseño.
+
+  Background:
+    Given la API REST del notification-service está disponible
+
+  # TC-NEG-01 — Técnica: Prueba Negativa (POST bloqueado)
+  Scenario: POST a /api/notifications/ retorna 405 Method Not Allowed
+    When el frontend realiza un POST a /api/notifications/ con un body JSON válido
+    Then la respuesta tiene código HTTP 405
+    And el body indica que el método no está permitido
+
+  # TC-NEG-02 — Técnica: Prueba Negativa (PUT bloqueado)
+  Scenario: PUT a /api/notifications/{id}/ retorna 405 Method Not Allowed
+    Given existe una notificación con id 42
+    When el frontend realiza un PUT a /api/notifications/42/ con un body JSON
+    Then la respuesta tiene código HTTP 405
+    And la notificación original no es modificada
+```
+
+---
+
+### 13.8 Trazabilidad: US → Caso Gherkin → Test pytest → Técnica
+
+Tabla de trazabilidad completa que vincula cada historia de usuario con los casos Gherkin diseñados, el test automatizado en pytest que lo cubre, y la técnica ISTQB aplicada:
+
+| US | Caso Gherkin | Técnica ISTQB | Test pytest | Estado |
+|----|-------------|---------------|-------------|--------|
+| US-E1-01 | TC-E1-01 | EP | `test_consumer_dispatch::test_callback_handles_ticket_created_normally` | ✅ |
+| US-E1-01 | TC-E1-02 | DT | `test_consumer_dispatch::test_callback_logs_error_on_invalid_response_event` | ✅ |
+| US-E1-01 | TC-E1-03 | BVA | `test_consumer_dispatch::test_callback_handles_ticket_created_normally` | ✅ |
+| US-E1-02 | TC-E1-04 | EP | `test_response_handler::test_create_notification_from_valid_response_event` | ✅ |
+| US-E1-02 | TC-E1-05 | DT | `test_response_handler::test_event_missing_ticket_id_raises_invalid_schema` | ✅ |
+| US-E1-02 | TC-E1-06 | EP | `test_response_handler::test_create_notification_from_valid_response_event` | ✅ |
+| US-E1-02 | TC-E1-07 | BVA | `test_response_handler::test_create_notification_message_format` | ✅ |
+| US-E1-05 | TC-E1-08 | EP | `test_response_handler::test_duplicate_response_id_does_not_create_second_notification` | ✅ |
+| US-E1-02 | TC-E1-09 | EP | `test_response_handler::test_first_event_with_response_id_calls_find_and_save` | ✅ |
+| US-E1-03 | TC-E1-10 | EP | ⏳ Pendiente (DT-09) | ⏳ |
+| US-E1-03 | TC-E1-11 | EP/Outline | ⏳ Pendiente (DT-09) | ⏳ |
+| US-E1-03 | TC-E1-12 | DT | ⏳ Pendiente (R11/DT-09) | ⏳ |
+| US-E1-04 | TC-E1-13 | EP | `test_consumer_dispatch::test_callback_handles_ticket_created_normally` | ✅ |
+| US-E1-04 | TC-E1-14 | EP/Outline | `test_consumer_dispatch::test_callback_handles_ticket_created_normally` | ✅ |
+| US-E1-04 | TC-E1-15 | Negativa | `test_consumer_dispatch::test_callback_logs_error_on_invalid_response_event` | ✅ |
+| US-E1-05 | TC-E1-16 | EP | ⏳ Pendiente (DT-01) | ⏳ |
+| US-E1-05 | TC-E1-17 | EP | `test_consumer_dispatch::test_callback_handles_ticket_created_normally` | ✅ |
+| US-E2-01 | TC-E2-01 | EP | `test_infrastructure::test_find_all` | ✅ |
+| US-E2-01 | TC-E2-02 | BVA | `test_infrastructure::test_find_all` (empty) | ✅ |
+| US-E2-02 | TC-E2-03 | EP | `test_infrastructure::test_find_by_id_existing` | ✅ |
+| US-E2-02 | TC-E2-04 | Negativa | `test_infrastructure::test_find_by_id_not_found` | ✅ |
+| US-E3-01 | TC-E3-01 | ST | `test_views::test_read_action_success` | ✅ |
+| US-E3-01 | TC-E3-02 | ST | `test_domain::test_mark_as_read_is_idempotent` | ✅ |
+| US-E3-01 | TC-E3-03 | Negativa | `test_views::test_read_action_not_found` | ✅ |
+| US-E4-01 | TC-E4-01 | EP | `test_integration` (infraestructura) | ✅ |
+| US-E4-01 | TC-E4-02 | Negativa | `test_infrastructure::test_find_by_id_not_found` | ✅ |
+| US-E4-02 | TC-E4-03 | EP | `test_integration` (infraestructura) | ✅ |
+| US-E4-02 | TC-E4-04 | ST | `test_integration` (infraestructura) | ✅ |
+| US-E5-01 | TC-E5-01 | ST | `test_consumer_reconnection` | ✅ |
+| US-E5-02 | TC-E5-02 | DT | `test_dead_letter_queue` | ✅ |
+| US-E5-02 | TC-E5-03 | DT | `test_dead_letter_queue` | ✅ |
+| — | TC-NEG-01 | Negativa | `test_views` (405 assertions) | ✅ |
+| — | TC-NEG-02 | Negativa | `test_views` (405 assertions) | ✅ |
+
+---
+
+### 13.9 Resumen de Cobertura por Técnica
+
+| Técnica ISTQB | Casos | % del Total |
+|---------------|-------|-------------|
+| **Partición de Equivalencia (EP)** | 16 | 47% |
+| **Tabla de Decisiones (DT)** | 5 | 15% |
+| **Análisis de Valores Límite (BVA)** | 4 | 12% |
+| **Transición de Estados (ST)** | 5 | 15% |
+| **Pruebas Negativas** | 4 | 12% |
+| **Total** | **34** | **100%** |
+
+### 13.10 Resumen de Cobertura por Épica
+
+| Épica | Casos | Pasaron | Pendientes | Fallaron |
+|-------|-------|---------|------------|----------|
+| **E1 — Ingesta de Eventos** | 17 | 12 | 5 (DT-01, DT-09) | 0 |
+| **E2 — Consulta REST** | 4 | 4 | 0 | 0 |
+| **E3 — Estado de Lectura** | 3 | 3 | 0 | 0 |
+| **E4 — Eliminación** | 4 | 4 | 0 | 0 |
+| **E5 — Resiliencia** | 3 | 3 | 0 | 0 |
+| **Negativas transversales** | 2 | 2 | 0 | 0 |
+| **Infraestructura (E6)** | — | — | — | — |
+| **Total** | **33** | **28** | **5** | **0** |
+
+> **Nota sobre E6 (Infraestructura):** Los escenarios de US-INFRA-01 (Dockerfile), US-INFRA-02 (docker-compose) y US-INFRA-03 (CI pipeline) están documentados en `USERSTORIES Y CRITERIOS DE ACEPTACION.md` con sus Gherkin completos. No se incluyen en esta matriz porque son verificados por inspección de artefactos (Dockerfile, docker-compose.yml, ci.yml) y no por pytest. Su ejecución se registra en el pipeline CI de GitHub Actions.
+
+---
+
+**📋 Plan de Pruebas v3.2 — Backend Notification Service**  
 *Actualizado: 26 de Febrero de 2026*
