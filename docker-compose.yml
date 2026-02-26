@@ -1,0 +1,109 @@
+# Orquestación multicontenedor — Actividad 2.2 + 2.3
+# Servicios: db (PostgreSQL) · rabbitmq · web (API Django) · consumer (RabbitMQ listener)
+# Volúmenes: postgres_data · rabbitmq_data  (Actividad 2.3 — persistencia de datos)
+
+services:
+
+  # ─────────────────────────────────────────────
+  # Base de datos PostgreSQL
+  # ─────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-notifications_db}
+      POSTGRES_USER:     ${POSTGRES_USER:-notif_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-notif_pass}
+    volumes:
+      # Actividad 2.3 — los datos persisten aunque el contenedor se destruya
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-notif_user} -d ${POSTGRES_DB:-notifications_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # Broker de mensajería RabbitMQ
+  # Management UI disponible en http://localhost:15672
+  # ─────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # Management UI
+    volumes:
+      # Actividad 2.3 — persiste mensajes y configuración entre reinicios
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # API REST Django + Gunicorn
+  # Puerto externo: 8001 (contrato copilot-instructions.md)
+  # ─────────────────────────────────────────────
+  web:
+    build: .
+    ports:
+      - "8001:8001"
+    env_file: .env
+    environment:
+      # Sobreescribe el host de DB y RabbitMQ con los nombres de servicio Docker
+      POSTGRES_HOST: db
+      RABBITMQ_HOST: rabbitmq
+    # Ejecuta migraciones y levanta gunicorn (sin iniciar el consumer — es su propio servicio)
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             gunicorn notification_service.wsgi:application
+             --bind 0.0.0.0:8001
+             --workers $${GUNICORN_WORKERS:-2}
+             --timeout $${GUNICORN_TIMEOUT:-30}
+             --access-logfile -
+             --error-logfile -"
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # Consumidor RabbitMQ (proceso standalone)
+  # Un proceso = un contenedor (principio Docker)
+  # Espera a que web esté healthy (migraciones completadas)
+  # ─────────────────────────────────────────────
+  consumer:
+    build: .
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      RABBITMQ_HOST: rabbitmq
+    command: python -m notifications.messaging.consumer
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+# ─────────────────────────────────────────────
+# Volúmenes nombrados — Actividad 2.3
+# Los datos sobreviven a: docker compose down, reinicios, recreación de contenedores
+# Para borrar los datos: docker compose down -v
+# ─────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
