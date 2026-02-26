@@ -27,32 +27,34 @@ class TestNotificationViewSet(TestCase):
     @patch('notifications.api.DjangoNotificationRepository')
     @patch('notifications.api.RabbitMQEventPublisher')
     def test_read_action_success(self, mock_publisher, mock_repository, mock_use_case):
-        """Marcar como leída una notificación existente retorna 204."""
-        # Arrange
-        notification_id = 1
-        domain_notification = DomainNotification(
-            id=notification_id,
+        """Marcar como leída una notificación existente retorna 200 OK con el recurso actualizado."""
+        # Arrange — crear notificación Django en DB para que Notification.objects.get() funcione
+        django_notification = DjangoNotification.objects.create(
             ticket_id="T-123",
             message="Test",
-            sent_at=datetime.now(),
-            read=True
+            read=False,
+            user_id="user-1"
         )
-        
+        notification_id = django_notification.pk
+
         # Mock del caso de uso
         mock_use_case_instance = Mock()
-        mock_use_case_instance.execute.return_value = domain_notification
+        mock_use_case_instance.execute.return_value = None
         mock_use_case.return_value = mock_use_case_instance
-        
-        # Crear viewset con mocks
+
+        # Crear viewset con mocks — se necesita request y format_kwarg para get_serializer
         viewset = NotificationViewSet()
         viewset.mark_as_read_use_case = mock_use_case_instance
-        
-        # Act
         request = self.factory.patch(f'/api/notifications/{notification_id}/read/')
+        viewset.request = request
+        viewset.format_kwarg = None
+
+        # Act
         response = viewset.read(request, pk=notification_id)
-        
+
         # Assert
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['id'] == notification_id
         mock_use_case_instance.execute.assert_called_once()
     
     @patch('notifications.api.MarkNotificationAsReadUseCase')
