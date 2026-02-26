@@ -374,7 +374,7 @@ Estas reglas aplican a **todo código nuevo** en este servicio:
 | Verbo    | ¿Se usa en este servicio? | Justificación |
 |----------|--------------------------|---------------|
 | `GET`    | ✅ Sí | Consulta de recursos sin efectos secundarios. Idempotente. |
-| `POST`   | ✅ Sí | Creación de nuevos recursos — responde `201 Created`. |
+| `POST`   | ❌ No aplica (`405`) | Las notificaciones se crean **exclusivamente** mediante eventos de dominio vía RabbitMQ. No existe flujo de creación manual por API REST; el endpoint está intencionalmente bloqueado para preservar la integridad del dominio e idempotencia garantizada por `response_id`. |
 | `PATCH`  | ✅ Sí | Actualización **parcial**: solo el campo `read` cambia. Idempotente. |
 | `PUT`    | ❌ No aplica | `PUT` reemplaza el recurso completo con el payload enviado. Una notificación no se reemplaza, solo se marca como leída. Aplicar `PUT` sería semánticamente incorrecto y requeriría enviar todos los campos del recurso. |
 | `DELETE` | ✅ Sí | Eliminación de recursos individuales (`/id/`) y en lote (`/clear/`). |
@@ -387,8 +387,8 @@ Estas reglas aplican a **todo código nuevo** en este servicio:
 |---|---|---|---|---|
 | `GET` | `/api/notifications/` | Listar todas las notificaciones | `200 OK` | — |
 | `GET` | `/api/notifications/{id}/` | Obtener notificación por ID | `200 OK` | `404 Not Found` |
-| `POST` | `/api/notifications/` | Crear notificación manualmente | `201 Created` | `400 Bad Request` |
-| `PATCH` | `/api/notifications/{id}/read/` | Marcar notificación como leída | `200 OK` | `404 Not Found` |
+| `POST` | `/api/notifications/` | **Bloqueado por diseño DDD** — las notificaciones solo se crean por eventos RabbitMQ | `405 Method Not Allowed` | — |
+| `PATCH` | `/api/notifications/{id}/read/` | Marcar notificación como leída — retorna el recurso actualizado | `200 OK` | `404 Not Found` · `400 Bad Request` · `500` |
 | `DELETE` | `/api/notifications/{id}/` | Eliminar notificación individual | `204 No Content` | `404 Not Found` |
 | `DELETE` | `/api/notifications/clear/` | Eliminar todas las notificaciones | `204 No Content` | — |
 
@@ -627,7 +627,7 @@ el servicio estará en condiciones de:
 |----------------------------------|------------|--------------------------------------------------------------------------------------|
 | Listar notificaciones            | `GET`      | Operación de lectura segura e idempotente; no modifica estado del servidor           |
 | Obtener notificación por ID      | `GET`      | Lectura de recurso identificado; idempotente                                         |
-| Crear notificación               | `POST`     | Creación de nuevo recurso en la colección; no idempotente                            |
+| ~~Crear notificación~~ — **bloqueado** | `POST` → `405` | Las notificaciones solo nacen de eventos RabbitMQ. Exponer `POST` rompería la idempotencia garantizada por `response_id` y permitiría crear notificaciones sin evento real de dominio. |
 | Marcar como leída                | `PATCH`    | Modificación **parcial** del recurso (solo campo `read`); semánticamente más correcto que `PUT` |
 | Eliminar notificación individual | `DELETE`   | Elimina recurso identificado; resultado observable: 404 posterior                   |
 | Eliminar todas las notificaciones| `DELETE`   | Operación destructiva sobre la colección completa                                    |
