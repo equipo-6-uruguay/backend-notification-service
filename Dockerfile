@@ -24,9 +24,10 @@ USER appuser
 
 EXPOSE 8001
 
-# Healthcheck: verifica que la API responda antes de que el orquestador
-# marque el contenedor como healthy (usado por docker-compose depends_on)
+# Healthcheck TCP — verifica que el puerto esté abierto sin requerir autenticación.
+# Un check HTTP al endpoint /api/notifications/ devolvería 401 y nunca marcaría
+# el contenedor como healthy, rompiendo la dependencia del servicio consumer.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/api/notifications/')" || exit 1
+    CMD python -c "import socket; s=socket.socket(); s.connect(('localhost', 8001)); s.close()" || exit 1
 
 CMD ["/app/entrypoint.sh"]
