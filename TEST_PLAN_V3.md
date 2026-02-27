@@ -1,7 +1,7 @@
-# Plan de Pruebas y Gestión de Riesgos — Notification Service v3.0
+# Plan de Pruebas y Gestión de Riesgos — Notification Service v3.3
 
 **Proyecto:** Backend Notification Service (Microservicio de Notificaciones)  
-**Versión del Plan:** 3.0  
+**Versión del Plan:** 3.3  
 **Fecha:** 26 de Febrero de 2026  
 **Autor:** Equipo de QA — Equipo 6 Uruguay  
 
@@ -16,6 +16,10 @@
 5. [Herramientas y Entorno](#5-herramientas-y-entorno)
 6. [Calendario de Pruebas](#6-calendario-de-pruebas)
 7. [Gestión de Riesgos](#7-gestión-de-riesgos)
+   - [7.0 Diferenciación: Riesgos de Proyecto vs Riesgos de Producto](#70-diferenciación-riesgos-de-proyecto-vs-riesgos-de-producto)
+   - [7.0.1 Riesgos de Proyecto (RP)](#701-riesgos-de-proyecto-rp)
+   - [7.0.2 Riesgos de Producto (RT)](#702-riesgos-de-producto-rt)
+   - [7.1 Matriz de Riesgos (Detalle)](#71-matriz-de-riesgos)
 8. [Criterios de Entrada y Salida](#8-criterios-de-entrada-y-salida)
 9. [Roles y Responsabilidades](#9-roles-y-responsabilidades)
 10. [Entregables](#10-entregables)
@@ -433,7 +437,58 @@ steps:
 
 ## 7. Gestión de Riesgos
 
-Siguiendo ISTQB Foundation §5.5 (Risk-Based Testing), se identifican, evalúan y mitigan riesgos técnicos y funcionales.
+Siguiendo ISTQB Foundation §5.5 (Risk-Based Testing), los riesgos se clasifican en dos categorías fundamentalmente distintas: **riesgos de proyecto** (que amenazan la gestión y entrega) y **riesgos de producto** (que amenazan la calidad del software). Esta distinción es obligatoria para construir una estrategia de testing basada en riesgo efectiva.
+
+---
+
+### 7.0 Diferenciación: Riesgos de Proyecto vs Riesgos de Producto
+
+| Dimensión | Riesgo de **Proyecto** | Riesgo de **Producto** |
+|-----------|------------------------|------------------------|
+| **Definición** | Amenazan la **gestión, planificación y entrega** del proyecto: plazos, equipo, proceso, dependencias externas | Amenazan la **calidad funcional y técnica** del software: bugs, fallos de seguridad, pérdida de datos, experiencia degradada |
+| **¿Quién lo gestiona?** | Project Manager / QA Lead | Tech Lead / QA Engineer |
+| **Se materializa como...** | Retrasos, sobrecostos, alcance reducido, deuda organizacional acumulada | Bugs en producción, pérdida de eventos, duplicados, fallos de autenticación |
+| **Herramientas de mitigación** | GitFlow, sprints, estimaciones, comunicación inter-equipo, documentación | Tests automatizados, CI/CD, code review, patrones de resiliencia (DLQ, backoff) |
+| **Detectado por...** | Reuniones de seguimiento, retrospectivas, revisión de Issues abiertos | Pipeline CI rojo, cobertura < 70%, fallos en Postman, logs de error |
+| **Ejemplos en este proyecto** | RP-01 a RP-05 — ver §7.0.1 | RT-01 a RT-11 — ver §7.1 |
+
+---
+
+### 7.0.1 Riesgos de Proyecto (RP)
+
+Riesgos que afectan la **gestión, planificación y entrega** del proyecto, independientemente de la calidad técnica del código. Estos riesgos son transversales: pueden materializarse incluso con código correcto.
+
+| ID | Riesgo de Proyecto | Prob. | Impacto | Severidad | Estrategia | Mitigación |
+|----|-------------------|-------|---------|-----------|------------|------------|
+| **RP-01** | **Deuda técnica acumulada bloquea entrega** — DT-01, DT-06, DT-09 no resueltas a tiempo impiden completar funcionalidades prometidas | Alta | Alto | **ALTA** | Reducir | - Backlog de deuda técnica visible en GitHub Issues con labels `technical-debt`<br>- Criterio de salida del sprint: máx. 3 DT abiertas de severidad media<br>- Review explícita de deuda en cada sprint retrospectiva |
+| **RP-02** | **Dependencia bloqueante con ticket-service** — DT-09: `ticket.status_changed` no incluye `user_id` en su contrato. El notification-service no puede implementar ese flujo hasta que el otro equipo extienda el evento | Alta | Alto | **ALTA** | Aceptar + Escalar | - Riesgo documentado como deuda técnica activa (ver ARCHITECTURE.md §9 y R11/RT-11)<br>- Escalado formal al equipo de ticket-service con fecha límite antes del release<br>- Mientras tanto: consumer ignora silenciosamente ese event type |
+| **RP-03** | **Cobertura de tests cae por debajo del 70%** al agregar código nuevo sin tests correspondientes | Media | Medio | **MEDIA** | Prevenir | - CI (`ci.yml`) falla automáticamente con `--cov-fail-under=70`<br>- PRs no mergeables si pipeline en rojo (branch protection rule en `develop` y `main`)<br>- Regla de equipo: todo nuevo código lleva test en el mismo commit |
+| **RP-04** | **Pipeline CI roto impide la integración del equipo** — un workflow de GitHub Actions fallido bloquea a todos los desarrolladores | Baja | Alto | **MEDIA** | Detectar + Recuperar | - GitHub Actions notifica por email al fallar<br>- Responsable DevOps asignado: restaurar pipeline en < 2 horas<br>- Ramas `develop` y `main` protegidas: merge solo si CI verde |
+| **RP-05** | **Documentación desactualizada retrasa onboarding** — evaluadores o nuevos miembros no pueden arrancar el servicio sin instrucciones claras | Media | Medio | **MEDIA** | Prevenir | - `ARCHITECTURE.md`, `TEST_PLAN_V3.md` y `.env.example` se actualizan en el mismo PR que el código<br>- `README.md` con instrucciones de arranque en ≤ 5 pasos verificadas antes del release<br>- Decisiones arquitectónicas documentadas como ADRs en `ARCHITECTURE.md` |
+
+---
+
+### 7.0.2 Riesgos de Producto (RT)
+
+Riesgos que afectan la **calidad funcional, técnica y no-funcional** del software. Son los riesgos que justifican la pirámide de testing y determinan qué pruebas son prioritarias (Risk-Based Testing).
+
+| ID | Riesgo de Producto | Severidad | Cubierto en |
+|----|-------------------|-----------|-------------|
+| RT-01 (R01) | Pérdida de eventos RabbitMQ | **ALTA** | §7.1 + test_consumer_reconnection |
+| RT-02 (R02) | Notificaciones duplicadas — idempotencia rota en `response_id` | **ALTA** | §7.1 + EP22 |
+| RT-03 (R03) | Schema inválido en evento crashea el consumer | **ALTA** | §7.1 + test_consumer_dispatch |
+| RT-04 (R04) | Inconsistencia ORM ↔ Dominio en repositorio | **ALTA** | §7.1 + test_infrastructure |
+| RT-05 (R05) | SSE stream bloqueante rompe CI | **ALTA** | §7.1 + `itertools.islice` |
+| RT-06 (R06) | Violación contrato DDD — `POST`/`PUT` expuestos | **ALTA** | §7.1 + test_views |
+| RT-07 (R07) | Stack trace expuesto en error 500 | **MEDIA** | §7.1 + test_views |
+| RT-08 (R08) | Consumer crashea el loop por excepción no manejada | **MEDIA** | §7.1 + test_consumer_dispatch |
+| RT-09 (R09) | Filtrado SSE incorrecto — usuario ve notifics de otro | **MEDIA** | §7.1 + test_sse_endpoint |
+| RT-10 (R10) | Performance degradada sin paginación | **MEDIA** | §7.1 (DT-06 pendiente) |
+| RT-11 (R11) | `ticket.status_changed` sin `user_id` | **ALTA** | §7.1 + ARCHITECTURE.md §9 |
+
+> El detalle completo de cada riesgo de producto, su probabilidad, estrategia e impacto se encuentra en **§7.1 Matriz de Riesgos** a continuación.
+
+---
 
 ### 7.1 Matriz de Riesgos
 
@@ -1597,5 +1652,5 @@ Tabla de trazabilidad completa que vincula cada historia de usuario con los caso
 
 ---
 
-**📋 Plan de Pruebas v3.2 — Backend Notification Service**  
+**📋 Plan de Pruebas v3.3 — Backend Notification Service**  
 *Actualizado: 26 de Febrero de 2026*
