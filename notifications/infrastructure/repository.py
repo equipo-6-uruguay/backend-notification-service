@@ -5,6 +5,8 @@ Adaptador que traduce entre el dominio y la persistencia.
 
 from typing import Optional, List
 
+from django.db.models import Q
+
 from ..domain.entities import Notification as DomainNotification
 from ..domain.repositories import NotificationRepository
 from ..models import Notification as DjangoNotification
@@ -164,13 +166,15 @@ class DjangoNotificationRepository(NotificationRepository):
 
     def delete_all(self, user_id: str) -> None:
         """
-        Elimina todas las notificaciones pertenecientes a un usuario.
-        Actualmente no se pasa usuario en el request /clear/, se asume todas o se borran las del token.
-        Considerando el contexto actual, borraremos todas las visibles o filtradas.
-        Dado que /clear/ no enviaba explícitamente el token en el view model por defecto, 
-        se borran todas las de un usuario en particular si se provee, o todas.
+        Elimina todas las notificaciones visibles para un usuario.
+
+        Aplica el mismo filtro que ``get_queryset`` en el ViewSet: borra las
+        notificaciones del usuario Y las globales (``user_id=''``), de modo que
+        "Limpiar todo" realmente elimine todo lo que el usuario ve en pantalla.
         """
         if user_id:
-            DjangoNotification.objects.filter(user_id=user_id).delete()
+            DjangoNotification.objects.filter(
+                Q(user_id=user_id) | Q(user_id='')
+            ).delete()
         else:
             DjangoNotification.objects.all().delete()
