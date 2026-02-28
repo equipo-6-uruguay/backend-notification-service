@@ -3,6 +3,7 @@ Tests del ViewSet refactorizado (capa de presentación).
 Prueban que las vistas deleguen correctamente a casos de uso.
 """
 
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from django.test import TestCase
 from rest_framework.test import APIRequestFactory
@@ -81,3 +82,57 @@ class TestNotificationViewSet(TestCase):
         # Assert
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert 'error' in response.data
+
+    def test_get_queryset_filters_notifications_by_authenticated_user(self):
+        """El listado REST solo debe devolver notificaciones del usuario autenticado y globales."""
+        user_notification = DjangoNotification.objects.create(
+            ticket_id="T-100",
+            message="User notification",
+            read=False,
+            user_id="user-1",
+        )
+        global_notification = DjangoNotification.objects.create(
+            ticket_id="T-101",
+            message="Global notification",
+            read=False,
+            user_id="",
+        )
+        DjangoNotification.objects.create(
+            ticket_id="T-102",
+            message="Other user notification",
+            read=False,
+            user_id="user-2",
+        )
+
+        request = self.factory.get('/api/notifications/')
+        request.user = SimpleNamespace(id='user-1')
+
+        viewset = NotificationViewSet()
+        viewset.request = request
+
+        queryset_ids = list(viewset.get_queryset().values_list('id', flat=True))
+
+        assert user_notification.id in queryset_ids
+        assert global_notification.id in queryset_ids
+        assert len(queryset_ids) == 2
+
+    @patch('notifications.api.ClearAllNotificationsUseCase')
+    @patch('notifications.api.DjangoNotificationRepository')
+    @patch('notifications.api.RabbitMQEventPublisher')
+    def test_clear_all_action_uses_authenticated_user_scope(self, mock_publisher, mock_repository, mock_use_case):
+        """Clear all debe delegar el borrado scoped al user_id autenticado."""
+        mock_use_case_instance = Mock()
+        mock_use_case.return_value = mock_use_case_instance
+
+        request = self.factory.delete('/api/notifications/clear/')
+        request.user = SimpleNamespace(id='user-1')
+
+        viewset = NotificationViewSet()
+        viewset.clear_all_use_case = mock_use_case_instance
+
+        response = viewset.clear_all(request)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_use_case_instance.execute.assert_called_once()
+        command = mock_use_case_instance.execute.call_args.args[0]
+        assert command.user_id == 'user-1'
