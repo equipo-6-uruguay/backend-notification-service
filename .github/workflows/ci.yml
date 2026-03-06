@@ -1,0 +1,125 @@
+# CI Pipeline — backend-notification-service
+# Actividad 3.3 — Taller Semana 3
+#
+# Se dispara en cada Push o Pull Request a: main, develop, feature/**, fix/**, chore/**, docs/**
+# Construye el entorno, ejecuta los tests del Taller 2 y valida cobertura mínima del 70%.
+# El pipeline falla e impide la integración si alguna prueba no pasa o la cobertura es insuficiente.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+      - 'fix/**'
+      - 'chore/**'
+      - 'docs/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+      - 'fix/**'
+      - 'chore/**'
+      - 'docs/**'
+
+jobs:
+  test:
+    name: Tests y Cobertura
+    runs-on: ubuntu-latest
+
+    # ─── Service container: RabbitMQ para tests de integración ───────────────
+    services:
+      rabbitmq:
+        image: rabbitmq:3
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    # ─── Variables de entorno ────────────────────────────────────────────────
+    # DJANGO_SETTINGS_MODULE ya está configurado en pytest.ini (test_settings)
+    # test_settings.py setea NOTIFICATION_SERVICE_SECRET_KEY y usa SQLite in-memory
+    env:
+      RABBITMQ_HOST: localhost
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      # ── 2. Python ────────────────────────────────────────────────────────
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements-dev.txt
+
+      # ── 3. Dependencias ──────────────────────────────────────────────────
+      # requirements-dev.txt incluye -r requirements.txt + pytest + pytest-django + pytest-cov
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt
+
+      # ── 4. Tests con cobertura ───────────────────────────────────────────
+      # --cov-fail-under=70 hace que el job falle si la cobertura es < 70%
+      # --timeout=30 evita que tests SSE o de integración bloqueen el runner
+      - name: Ejecutar tests con cobertura
+        timeout-minutes: 10
+        run: |
+          pytest \
+            --cov=notifications \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=70 \
+            -v
+
+      # ── 5. Artefacto de cobertura ────────────────────────────────────────
+      - name: Subir reporte de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # NUEVO JOB: Build & Push a GHCR
+  # ─────────────────────────────────────────────
+  build-and-push:
+    name: Build and Push Docker Image
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

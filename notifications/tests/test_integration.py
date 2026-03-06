@@ -4,12 +4,13 @@ Prueban la integración con RabbitMQ y el flujo completo del sistema.
 """
 
 import json
+import os
 import pika
 import time
 from django.test import TestCase
 from notifications.models import Notification
 
-RABBIT_HOST = 'rabbitmq'
+RABBIT_HOST = os.environ.get('RABBITMQ_HOST', 'localhost')
 QUEUE_NAME = 'ticket_created'
 
 

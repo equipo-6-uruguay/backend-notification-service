@@ -5,14 +5,29 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.txt /app/
+# Instalar dependencias de produccion antes de copiar el codigo
+# para aprovechar la cache de capas de Docker
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . /app/
+# Copiar el codigo fuente
+COPY . .
 
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+# Crear usuario de sistema sin privilegios de root [DT-05 / US-INFRA-01]
+# El proceso NO corre como root, reduciendo la superficie de ataque
+RUN addgroup --system appgroup \
+    && adduser --system --ingroup appgroup --no-create-home appuser \
+    && chown -R appuser:appgroup /app \
+    && chmod +x /app/entrypoint.sh
 
-EXPOSE 8000
+USER appuser
 
-CMD ["sh", "/app/entrypoint.sh"]
+EXPOSE 8001
+
+# Healthcheck TCP — verifica que el puerto esté abierto sin requerir autenticación.
+# Un check HTTP al endpoint /api/notifications/ devolvería 401 y nunca marcaría
+# el contenedor como healthy, rompiendo la dependencia del servicio consumer.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import socket; s=socket.socket(); s.connect(('localhost', 8001)); s.close()" || exit 1
+
+CMD ["/app/entrypoint.sh"]

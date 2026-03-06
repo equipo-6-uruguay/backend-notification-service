@@ -58,6 +58,8 @@ logger = logging.getLogger(__name__)
 
 # Configuración RabbitMQ desde variables de entorno
 RABBIT_HOST = os.environ.get('RABBITMQ_HOST')
+RABBIT_USER = os.environ.get('RABBITMQ_USER', 'guest')
+RABBIT_PASS = os.environ.get('RABBITMQ_PASSWORD', 'guest')
 EXCHANGE_NAME = os.environ.get('RABBITMQ_EXCHANGE_NAME')
 QUEUE_NAME = os.environ.get('RABBITMQ_QUEUE_NOTIFICATION')
 
@@ -161,7 +163,7 @@ def callback(ch, method, properties, body):
         ch.basic_ack(delivery_tag=method.delivery_tag)
     except InvalidEventSchema as exc:
         logger.error("Invalid event schema for %s: %s", event_type, exc)
-        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+        ch.basic_ack(delivery_tag=method.delivery_tag)
     except Exception as exc:
         logger.error("Error processing event %s: %s", event_type, exc)
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
@@ -249,8 +251,9 @@ def start_consuming() -> None:
     while True:
         try:
             logger.info("Connecting to RabbitMQ at %s...", RABBIT_HOST)
+            credentials = pika.PlainCredentials(RABBIT_USER, RABBIT_PASS)
             connection = pika.BlockingConnection(
-                pika.ConnectionParameters(host=RABBIT_HOST)
+                pika.ConnectionParameters(host=RABBIT_HOST, credentials=credentials)
             )
             channel = connection.channel()
 
